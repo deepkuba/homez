@@ -1,4 +1,4 @@
-FROM python:3.13.7-slim-bookworm AS builder
+FROM python:3.14.7-slim-bookworm AS builder
 
 ENV PIP_DISABLE_PIP_VERSION_CHECK=1 \
     PIP_NO_CACHE_DIR=1
@@ -8,7 +8,7 @@ COPY pyproject.toml requirements.lock README.md ./
 COPY src ./src
 RUN python -m pip wheel --constraint requirements.lock --wheel-dir /wheels .
 
-FROM python:3.13.7-slim-bookworm AS runtime
+FROM python:3.14.7-slim-bookworm AS runtime
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
