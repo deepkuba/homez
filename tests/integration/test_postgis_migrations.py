@@ -26,6 +26,6 @@ def test_migrations_create_catalog_in_postgis(monkeypatch: pytest.MonkeyPatch) -
                 "listings",
                 "listing_snapshots",
                 "property_candidates",
-            } <= set(inspect(connection).get_table_names())
+            } <= set(inspect(connection).get_table_names(schema="public"))
     finally:
         command.downgrade(config, "base")
