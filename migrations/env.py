@@ -26,7 +26,12 @@ def include_object(
     _compare_to: object | None,
 ) -> bool:
     """Ignore tables owned by extensions rather than application metadata."""
-    return not (type_ == "table" and reflected and name == "spatial_ref_sys")
+    schema = getattr(_object, "schema", None)
+    return not (
+        type_ == "table"
+        and reflected
+        and (name == "spatial_ref_sys" or schema in {"tiger", "topology"})
+    )
 
 
 def run_migrations_offline() -> None:
@@ -48,6 +53,10 @@ def run_migrations_online() -> None:
         poolclass=pool.NullPool,
     )
     with connectable.connect() as connection:
+        if connection.dialect.name == "postgresql":
+            # PostGIS images add extension schemas to the database search path.
+            # Alembic owns application tables in public only.
+            connection.exec_driver_sql("SET search_path TO public")
         context.configure(
             connection=connection,
             target_metadata=target_metadata,
