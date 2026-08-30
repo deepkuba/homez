@@ -13,6 +13,7 @@ dependencies = [
   "fastapi==0.135.3",
   "jinja2==3.1.6",
   "psycopg[binary]==3.3.4",
+  "pydantic-settings==2.15.0",
   "sqlalchemy==2.0.52",
   "uvicorn==0.41.0",
 ]
@@ -35,6 +36,7 @@ packages = ["src/homefinder"]
 [tool.pytest.ini_options]
 addopts = "-ra --strict-config --strict-markers"
 testpaths = ["tests"]
+markers = ["postgres: requires a live PostgreSQL/PostGIS database"]
 
 [tool.ruff]
 line-length = 88
@@ -44,7 +46,7 @@ target-version = "py310"
 select = ["E", "F", "I", "UP", "B", "S", "SIM"]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**/*.py" = ["S101"]
+"tests/**/*.py" = ["S101", "S105"]
 
 [tool.mypy]
 python_version = "3.10"

@@ -38,3 +38,15 @@ DATABASE_URL=sqlite:///migration-check.sqlite3 .venv/bin/alembic upgrade head
 ```
 
 Production uses PostgreSQL/PostGIS through `infra/compose.yaml`.
+
+## Runtime configuration
+
+Configuration is validated at application startup:
+
+- `HOMEFINDER_ENVIRONMENT`: `development`, `test`, or `production`;
+- `HOMEFINDER_DATABASE_URL`: SQLAlchemy database URL, treated as a secret;
+- `HOMEFINDER_LOG_LEVEL`: `DEBUG`, `INFO`, `WARNING`, `ERROR`, or `CRITICAL`.
+
+Production mode rejects non-PostgreSQL database URLs. Compose constructs the
+database URL from `POSTGRES_PASSWORD`; the real `.env` must remain outside Git.
+Tests use the schema directly and CI validates migrations against real PostGIS.

@@ -1,6 +1,6 @@
 # Implementation Plan
 
-- Status: In progress; Slice 1 walking skeleton implemented with a synthetic fixture
+- Status: In progress; Slices 0-1 implemented with a synthetic fixture
 - Date: 2026-08-30
 - Delivery mode: incremental implementation; no production integration is enabled
 
@@ -164,6 +164,11 @@ increment.
 
 ### Slice 0 — Repository and delivery foundation
 
+**Status:** Completed 30 August 2026. CI validates formatting, linting, strict
+typing, tests, dependency vulnerabilities, architecture boundaries, migrations
+against PostGIS, image construction, Compose startup, and container health using
+fake credentials.
+
 **Coding agent:** initialize Python project, formatting/lint/type/test tools,
 FastAPI health endpoint, PostgreSQL/PostGIS migration framework, Docker Compose,
 CI, configuration schema, secret placeholders, and architecture boundary tests.
@@ -175,6 +180,10 @@ details without committing credentials.
 container health checks using fake credentials.
 
 ### Slice 1 — Walking skeleton with sanitized fixtures
+
+**Status:** Completed 30 August 2026 with a synthetic fixture using reserved
+`.invalid` domains. Real portal fixtures remain buyer input for Slice 2 contract
+work.
 
 **Coding agent:** implement email-message, listing, snapshot, source, and property-
 candidate models; parse one sanitized alert fixture; normalize it; render a local

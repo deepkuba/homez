@@ -15,6 +15,25 @@ concurrency:
 jobs:
   quality:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgis/postgis:17-3.5-alpine
+        env:
+          POSTGRES_DB: homefinder_test
+          POSTGRES_USER: homefinder
+          POSTGRES_PASSWORD: fake-ci-password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U homefinder -d homefinder_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: >-
+        postgresql+psycopg://homefinder:fake-ci-password@localhost:5432/homefinder_test
+      TEST_POSTGRES_URL: >-
+        postgresql+psycopg://homefinder:fake-ci-password@localhost:5432/homefinder_test
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         # v7.0.1
@@ -34,8 +53,7 @@ jobs:
           pip-audit --requirement requirements.lock --no-deps --disable-pip
       - run: yamllint -d relaxed .github/workflows .github/dependabot.yml
       - run: alembic upgrade head
-        env:
-          DATABASE_URL: sqlite:///migration-check.sqlite3
+      - run: alembic check
 
   container:
     runs-on: ubuntu-latest
@@ -53,24 +71,22 @@ jobs:
           tags: homefinder:test
           cache-from: type=gha
           cache-to: type=gha,mode=max
-      - name: Verify container health
+      - name: Verify Compose migrations and health
         run: |
-          docker run --detach --name homefinder-smoke \
-            --read-only --tmpfs /tmp:rw,noexec,nosuid,size=16m \
-            --cap-drop ALL --security-opt no-new-privileges \
-            --health-interval 1s --health-start-period 1s \
-            --health-timeout 3s --health-retries 3 \
-            homefinder:test
-          trap 'docker rm --force homefinder-smoke' EXIT
-          for attempt in $(seq 1 20); do
-            status=$(docker inspect \
-              --format '{{.State.Health.Status}}' homefinder-smoke)
-            if [ "$status" = healthy ]; then exit 0; fi
-            if [ "$status" = unhealthy ]; then
-              docker logs homefinder-smoke
-              exit 1
-            fi
-            sleep 1
-          done
-          docker logs homefinder-smoke
-          exit 1
+          export HOMEZ_IMAGE=homefinder
+          export HOMEZ_IMAGE_TAG=test
+          export HOMEFINDER_ENVIRONMENT=production
+          export POSTGRES_PASSWORD=fake-compose-password
+          compose() {
+            docker compose --project-name homez-ci -f infra/compose.yaml "$@"
+          }
+          cleanup() {
+            compose down --volumes --remove-orphans
+          }
+          trap cleanup EXIT
+          compose up --detach db
+          compose run --rm app alembic upgrade head
+          compose up --detach --wait
+          compose exec -T db psql --username homefinder \
+            --dbname homefinder --command 'SELECT PostGIS_Version();'
+          compose ps

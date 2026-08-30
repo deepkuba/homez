@@ -37,9 +37,15 @@ psycopg==3.3.4
 psycopg-binary==3.3.4
     # via psycopg
 pydantic==2.13.5
-    # via fastapi
+    # via
+    #   fastapi
+    #   pydantic-settings
 pydantic-core==2.46.5
     # via pydantic
+pydantic-settings==2.15.0
+    # via homefinder (pyproject.toml)
+python-dotenv==1.2.3
+    # via pydantic-settings
 sqlalchemy==2.0.52
     # via
     #   alembic
@@ -65,5 +71,6 @@ typing-inspection==0.4.4
     # via
     #   fastapi
     #   pydantic
+    #   pydantic-settings
 uvicorn==0.41.0
     # via homefinder (pyproject.toml)

@@ -6,7 +6,8 @@ services:
       db:
         condition: service_healthy
     environment:
-      DATABASE_URL: "postgresql+psycopg://homefinder:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@db:5432/homefinder"
+      HOMEFINDER_ENVIRONMENT: "${HOMEFINDER_ENVIRONMENT:-production}"
+      HOMEFINDER_DATABASE_URL: "postgresql+psycopg://homefinder:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@db:5432/homefinder"
     read_only: true
     tmpfs:
       - /tmp:size=16m,mode=1777
