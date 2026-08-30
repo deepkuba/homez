@@ -1,0 +1,11 @@
+<article class="listing-card" data-source-listing-id="{{ listing.source_listing_id }}">
+  <h2>{{ listing.title }}</h2>
+  <p class="listing-card__price">{{ formatted_price }}</p>
+  <dl>
+    <dt>Lokalizacja</dt><dd>{{ snapshot.location }}</dd>
+    <dt>Powierzchnia</dt><dd>{{ formatted_area }} m²</dd>
+    <dt>Pokoje</dt><dd>{{ snapshot.rooms }}</dd>
+  </dl>
+  {% if snapshot.description %}<p>{{ snapshot.description }}</p>{% endif %}
+  <a href="{{ listing.canonical_url }}" rel="noreferrer noopener">Zobacz ogłoszenie</a>
+</article>

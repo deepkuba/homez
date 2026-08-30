@@ -1,0 +1,24 @@
+Message-ID: <sample-20260830-001@fixtures.homez.invalid>
+Date: Sun, 30 Aug 2026 08:15:00 +0200
+From: Sample Portal <alerts@fixtures.homez.invalid>
+To: buyer@fixtures.homez.invalid
+Subject: =?utf-8?q?Nowe_mieszkanie_spe=C5=82niaj=C4=85ce_Twoje_kryteria?=
+X-Homez-Source: sample_portal
+MIME-Version: 1.0
+Content-Type: text/html; charset="utf-8"
+
+<!doctype html>
+<html lang="pl">
+  <body>
+    <article data-homez-listing data-listing-id="sample-krk-001">
+      <h2 data-field="title">Jasne 2 pokoje z balkonem</h2>
+      <a data-field="url" href="https://listings.homez.invalid/sample-krk-001">Zobacz</a>
+      <span data-field="price" data-minor-units="74900000" data-currency="PLN">749 000 zł</span>
+      <span data-field="area" data-square-metres="51.4">51,4 m²</span>
+      <span data-field="rooms" data-count="2">2 pokoje</span>
+      <span data-field="availability" data-status="available">Dostępne</span>
+      <span data-field="location">Kraków, Dębniki</span>
+      <p data-field="description">Spokojne mieszkanie blisko zieleni.</p>
+    </article>
+  </body>
+</html>

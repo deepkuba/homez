@@ -1,0 +1,44 @@
+services:
+  app:
+    image: "${HOMEZ_IMAGE:-ghcr.io/deepkuba/homez}:${HOMEZ_IMAGE_TAG:-main}"
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: "postgresql+psycopg://homefinder:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@db:5432/homefinder"
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    networks:
+      - backend
+
+  db:
+    image: postgis/postgis:17-3.5-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: homefinder
+      POSTGRES_USER: homefinder
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U homefinder -d homefinder"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - backend
+
+networks:
+  backend:
+    internal: true
+
+volumes:
+  postgres-data:

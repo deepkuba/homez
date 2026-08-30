@@ -1,0 +1,10 @@
+Message-ID: <sample-20260830-bad@fixtures.homez.invalid>
+Date: Sun, 30 Aug 2026 08:16:00 +0200
+From: Sample Portal <alerts@fixtures.homez.invalid>
+To: buyer@fixtures.homez.invalid
+Subject: Broken fixture
+X-Homez-Source: sample_portal
+MIME-Version: 1.0
+Content-Type: text/html; charset="utf-8"
+
+<html><body><article data-homez-listing data-listing-id="missing-fields"></article></body></html>
