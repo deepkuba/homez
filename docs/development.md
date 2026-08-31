@@ -91,3 +91,15 @@ Configuration is validated at application startup:
 Production mode rejects non-PostgreSQL database URLs. Compose constructs the
 database URL from `POSTGRES_PASSWORD`; the real `.env` must remain outside Git.
 Tests use the schema directly and CI validates migrations against real PostGIS.
+
+## Weekly digest and feedback
+
+Slice 6 provides renderer and delivery/feedback contracts in `homefinder.digest`.
+`render_digest` returns HTML and plain text with separate compliant and
+exploration sections; `render_share_text` is safe to copy or use as `mailto`
+content and never includes feedback tokens. Tokens are random at issue time,
+stored as SHA-256 hashes, scoped to one report/listing, expiring, and single-use.
+Feedback mutation is POST-only and checks CSRF before recording an auditable
+event. Production delivery must provide persistent implementations backed by
+migration `20260831_06`, a real mail sender, and a scheduler for Friday 10:00
+`Europe/Warsaw`. Do not put feedback URLs in shared content.

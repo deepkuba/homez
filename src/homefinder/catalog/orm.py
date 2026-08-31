@@ -164,3 +164,35 @@ class RouteObservationRecord(Base):
     provider: Mapped[str] = mapped_column(String(100))
     observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     confidence: Mapped[Decimal] = mapped_column(Numeric(4, 3))
+
+
+class DigestDeliveryRecord(Base):
+    __tablename__ = "digest_deliveries"
+
+    period: Mapped[str] = mapped_column(String(8), primary_key=True)
+    report_id: Mapped[str] = mapped_column(String(100), unique=True)
+    sent_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    recipient: Mapped[str] = mapped_column(String(320))
+
+
+class FeedbackTokenRecord(Base):
+    __tablename__ = "feedback_tokens"
+
+    token_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    report_id: Mapped[str] = mapped_column(String(100), index=True)
+    listing_id: Mapped[str] = mapped_column(String(100), index=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    used_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+
+class FeedbackEventRecord(Base):
+    __tablename__ = "feedback_events"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True)
+    token_hash: Mapped[str] = mapped_column(ForeignKey("feedback_tokens.token_hash"))
+    report_id: Mapped[str] = mapped_column(String(100))
+    listing_id: Mapped[str] = mapped_column(String(100))
+    value: Mapped[str] = mapped_column(String(20))
+    recorded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))

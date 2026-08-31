@@ -1,6 +1,6 @@
 # Implementation Plan
 
-- Status: In progress; Slices 0-5 implemented with synthetic fixtures
+- Status: In progress; Slices 0-6 implemented with synthetic fixtures
 - Date: 2026-08-31
 - Delivery mode: incremental implementation; no production integration is enabled
 
@@ -304,6 +304,10 @@ display, while stale or missing routes never satisfy the hard commute rule.
 
 ### Slice 6 — Digest, safe sharing, and feedback loop
 
+**Status:** Implemented 31 August 2026 with deterministic rendering, delivery,
+and feedback tests. SMTP/provider wiring, a persistent delivery worker, and
+real-device preview remain buyer/deployment prerequisites.
+
 **Coding agent:** responsive HTML/plain-text templates, Friday scheduling,
 idempotent delivery, 10+10 sections, share-safe `mailto`/copy content, token model,
 mobile form, feedback events, CSRF protection, rate limits, and audit history.
@@ -313,6 +317,16 @@ devices; decide domain and authorize DNS/TLS configuration.
 
 **Exit:** end-to-end test sends to a test inbox, records feedback only on POST,
 prevents token reuse, and confirms share content contains no private token.
+
+**Implemented:** escaped HTML/plain-text digest rendering with separate
+compliant/exploration sections; share text without feedback URLs or profile
+details; Friday 10:00 Europe/Warsaw due-window logic; retryable period-level
+delivery idempotency; hashed, expiring, report/listing-scoped single-use
+tokens; POST-only feedback with CSRF comparison and rate limiting; a minimal
+feedback endpoint; and the `digest_deliveries`, `feedback_tokens`, and
+`feedback_events` migration tables. Delivery and token ledgers are currently
+in-memory services for fixture/test use; production wiring must use the tables
+and a real mail sender before live delivery.
 
 **First usable release:** enable weekly delivery after Slices 0-6 and a buyer-
 approved shadow report. Do not wait for every enrichment below.
@@ -469,8 +483,7 @@ separate from code completion.
 
 ## 11. Recommended next action
 
-Slice 5 is ready for buyer setup of the dedicated Google Cloud project, restricted
-Routes credential, Google-side quota ceiling, and sandbox route checks. The next
-coding increment is Slice 6 (digest, safe sharing, and feedback); live source and
-Google credentials plus production deployment remain outside the current delivery
-boundary.
+Slice 6 is ready for buyer review of HTML/plain-text and mobile feedback previews,
+recipient selection, and delivery-domain/DNS decisions. The first usable release
+can proceed as a shadow report after production persistence, mail transport,
+OAuth, source approvals, and Google route sandbox checks are completed.
