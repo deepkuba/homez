@@ -1,7 +1,7 @@
 # Human To-Do List
 
 - Owner: Buyer
-- Updated: 2026-08-30
+- Updated: 2026-08-31
 - Scope: Actions that require a human; coding-agent work is intentionally omitted
 
 Do not put passwords, OAuth tokens, API keys, recovery codes, financial documents,
@@ -56,6 +56,8 @@ or personal email content in Git, issues, or this checklist.
 
 - [ ] Complete the one-time Google OAuth consent flow using the dedicated Gmail
   account.
+- [ ] Store the resulting OAuth token using the encrypted token mechanism; keep
+  the encryption key in the VPS secret store and separate from the token file.
 - [ ] Grant only the permissions shown in the reviewed setup instructions.
 - [ ] Confirm that alert ingestion labels messages correctly and does not modify
   unrelated mail.

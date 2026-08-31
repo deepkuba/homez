@@ -1,7 +1,7 @@
 # Implementation Plan
 
-- Status: In progress; Slices 0-1 implemented with a synthetic fixture
-- Date: 2026-08-30
+- Status: In progress; Slices 0-2 implemented with synthetic fixtures
+- Date: 2026-08-31
 - Delivery mode: incremental implementation; no production integration is enabled
 
 ## 1. Product outcome
@@ -197,16 +197,31 @@ one integration test.
 
 ### Slice 2 — Gmail ingestion and source governance
 
+**Status:** Implemented 31 August 2026 with a fake Gmail contract and the
+sanitized sample-portal alert. Live OAuth consent, real portal fixtures, and
+source-by-source terms approval remain buyer prerequisites.
+
 **Coding agent:** Gmail OAuth adapter, label/state workflow, polling CLI, encrypted
 token loading, source-policy registry, quarantine/retry behavior, source health,
 and contract tests for each approved alert format.
+
+**Implemented:** `GmailApiClient` reads and modifies Gmail messages through the
+Gmail REST API; `EncryptedTokenStore` stores OAuth token JSON using AES-GCM; and
+`GmailPollingService` polls a configured label, ingests by immutable provider
+message ID, applies processed/quarantine labels, preserves malformed raw mail,
+records per-source health, and leaves transient failures available for retry.
+The `poll-gmail` CLI currently registers only the synthetic sample source, whose
+page-fetch policy is disabled. Additional portal parsers and policies must be
+added only after their alert fixtures and access methods are approved.
 
 **Buyer required:** create dedicated Gmail and portal accounts, enable 2FA, create
 saved searches, complete one-time OAuth consent, and approve each source's access
 method after terms review.
 
-**Exit:** live alerts ingest without duplicate processing; no automated page fetch
-occurs for an unapproved source.
+**Exit:** fixture-backed Gmail polling ingests without duplicate processing and
+does not fetch pages for an unapproved source. Live-alert exit evidence is
+blocked until the buyer completes OAuth consent and supplies approved alert
+fixtures for the selected portals.
 
 ### Slice 3 — Catalog history and deduplication
 
