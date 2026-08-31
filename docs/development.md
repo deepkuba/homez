@@ -29,6 +29,12 @@ contains no personal data or working token.
 Opening `preview.html` shows the normalized listing card. Running the command
 again against the default local database is idempotent.
 
+Catalog history and deduplication are covered by
+`tests/unit/test_slice3_catalog.py`. Exact duplicate identity is automatic only
+for matching normalized alert facts; fuzzy matches are retained as pending
+evidence for buyer review. Candidate merge, split, and resurfacing decisions
+are repository operations and do not discard listing snapshots.
+
 ## Gmail polling
 
 Slice 2 provides a governed polling command. It expects an OAuth token envelope

@@ -3,6 +3,7 @@ from decimal import Decimal
 from uuid import UUID
 
 from sqlalchemy import (
+    CheckConstraint,
     DateTime,
     ForeignKey,
     LargeBinary,
@@ -56,8 +57,10 @@ class ListingSnapshotRecord(Base):
 
 class PropertyCandidateRecord(Base):
     __tablename__ = "property_candidates"
+    __table_args__ = (UniqueConstraint("deterministic_key"),)
 
     id: Mapped[UUID] = mapped_column(primary_key=True)
+    deterministic_key: Mapped[str] = mapped_column(String(500))
 
 
 class CandidateListingRecord(Base):
@@ -69,6 +72,34 @@ class CandidateListingRecord(Base):
     listing_id: Mapped[UUID] = mapped_column(
         ForeignKey("listings.id"), primary_key=True
     )
+
+
+class DuplicateEvidenceRecord(Base):
+    __tablename__ = "duplicate_evidence"
+    __table_args__ = (
+        UniqueConstraint("listing_id", "possible_listing_id"),
+        CheckConstraint("listing_id <> possible_listing_id"),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True)
+    listing_id: Mapped[UUID] = mapped_column(ForeignKey("listings.id"), index=True)
+    possible_listing_id: Mapped[UUID] = mapped_column(
+        ForeignKey("listings.id"), index=True
+    )
+    confidence: Mapped[Decimal] = mapped_column(Numeric(4, 3))
+    reasons: Mapped[str] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(20), default="pending")
+
+
+class CandidatePresentationRecord(Base):
+    __tablename__ = "candidate_presentations"
+    id: Mapped[UUID] = mapped_column(primary_key=True)
+    candidate_id: Mapped[UUID] = mapped_column(
+        ForeignKey("property_candidates.id"), index=True
+    )
+    snapshot_id: Mapped[UUID] = mapped_column(ForeignKey("listing_snapshots.id"))
+    presented_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    dismissed: Mapped[bool] = mapped_column(default=False)
 
 
 class SourceMessageRecord(Base):
