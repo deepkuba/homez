@@ -9,16 +9,16 @@ or personal email content in Git, issues, or this checklist.
 
 ## Do now — unblock live listing ingestion
 
-- [ ] Create a dedicated Gmail account used only by the property assistant.
-- [ ] Enable 2-Step Verification on that account.
-- [ ] Add current recovery email/phone details and store recovery codes securely.
+- [x] Create a dedicated Gmail account used only by the property assistant.
+- [x] Enable 2-Step Verification on that account.
+- [x] Add current recovery email/phone details and store recovery codes securely.
 - [ ] Create or update buyer accounts on the initial portals:
-  - [ ] Otodom
-  - [ ] OLX
-  - [ ] Morizon
-  - [ ] Gratka
-- [ ] Use the dedicated Gmail address for portal notifications.
-- [ ] Create broad saved searches/alerts on those portals. Keep them broad enough
+  - [x] Otodom
+  - [x] OLX
+  - [x] Morizon
+  - [x] Gratka
+- [x] Use the dedicated Gmail address for portal notifications.
+- [x] Create broad saved searches/alerts on those portals. Keep them broad enough
   to supply both compliant and exploration results; do not encode every hard rule
   in the portal search itself.
 - [ ] Wait until at least one real alert arrives from each portal.
