@@ -2,7 +2,15 @@ from datetime import datetime
 from decimal import Decimal
 from uuid import UUID
 
-from sqlalchemy import DateTime, ForeignKey, Numeric, String, Text, UniqueConstraint
+from sqlalchemy import (
+    DateTime,
+    ForeignKey,
+    LargeBinary,
+    Numeric,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -76,3 +84,23 @@ class SourceMessageRecord(Base):
     listing_id: Mapped[UUID] = mapped_column(ForeignKey("listings.id"))
     snapshot_id: Mapped[UUID] = mapped_column(ForeignKey("listing_snapshots.id"))
     candidate_id: Mapped[UUID] = mapped_column(ForeignKey("property_candidates.id"))
+
+
+class QuarantinedMessageRecord(Base):
+    __tablename__ = "quarantined_messages"
+
+    provider_message_id: Mapped[str] = mapped_column(String(255), primary_key=True)
+    source_key: Mapped[str] = mapped_column(String(100), index=True)
+    received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    raw_message: Mapped[bytes] = mapped_column(LargeBinary)
+    reason: Mapped[str] = mapped_column(String(500))
+
+
+class IngestionStateRecord(Base):
+    __tablename__ = "ingestion_states"
+
+    source_key: Mapped[str] = mapped_column(String(100), primary_key=True)
+    last_success_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    last_error: Mapped[str | None] = mapped_column(String(500), nullable=True)
