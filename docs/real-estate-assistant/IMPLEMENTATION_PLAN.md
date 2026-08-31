@@ -1,6 +1,6 @@
 # Implementation Plan
 
-- Status: In progress; Slices 0-4 implemented with synthetic fixtures
+- Status: In progress; Slices 0-5 implemented with synthetic fixtures
 - Date: 2026-08-31
 - Delivery mode: incremental implementation; no production integration is enabled
 
@@ -278,6 +278,10 @@ component scores, and exploration reasons.
 
 ### Slice 5 — Geocoding and multimodal routes
 
+**Status:** Implemented 31 August 2026 as a provider-independent routing
+increment. Live Google credentials, billing, Google-side restrictions, and
+sandbox validation remain buyer prerequisites.
+
 **Coding agent:** Google Routes adapter, batching/cache, destination/routing-goal
 versions, morning/return evaluation, quota ledger/reservation, circuit breaker,
 alerts, fake-provider tests, and stale-route behavior.
@@ -288,6 +292,15 @@ allowance plus application safety ceiling.
 
 **Exit:** concurrency tests prove the local ceiling cannot be exceeded; sandbox
 requests validate Krakow transit/drive/walk/bicycle output before production use.
+
+**Implemented:** versioned destination and routing-goal value objects; conservative
+morning/return aggregation using the slower direction; explicit pass/fail/unknown
+route status with age, confidence, winning modes, and minute margin; cache keys
+that include destination and goal versions; a quota-aware route enricher; a
+thread-safe local safety ledger; one-shot provider-quota circuit-breaker alerts;
+the Google Routes REST adapter; and the `routing_quota_ledger` and
+`route_observations` migration tables. Cached routes remain available for report
+display, while stale or missing routes never satisfy the hard commute rule.
 
 ### Slice 6 — Digest, safe sharing, and feedback loop
 
@@ -456,7 +469,8 @@ separate from code completion.
 
 ## 11. Recommended next action
 
-Slice 3 is ready for buyer review of pending duplicate groups and false
-positives. The next coding increment is Slice 4 (profile, costs, eligibility,
-and explainable ranking); live source credentials and production deployment
-remain outside the current delivery boundary.
+Slice 5 is ready for buyer setup of the dedicated Google Cloud project, restricted
+Routes credential, Google-side quota ceiling, and sandbox route checks. The next
+coding increment is Slice 6 (digest, safe sharing, and feedback); live source and
+Google credentials plus production deployment remain outside the current delivery
+boundary.

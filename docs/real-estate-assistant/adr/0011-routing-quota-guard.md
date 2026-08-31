@@ -73,6 +73,17 @@ The quota alert uses Gmail and therefore remains independent of Routes API.
 - Absolute protection also depends on Google-side restrictions and preventing
   other use of the dedicated project/key.
 
+## Slice 5 implementation
+
+The application boundary is `RouteProvider`, with `GoogleRoutesProvider` as the
+REST adapter and a fake provider suitable for tests. `RouteEnricher` caches by
+origin, destination place, mode, direction, departure time, and routing-goal
+version. A cache hit consumes no quota. A miss reserves one unit before the
+provider call; provider quota errors trip the ledger circuit breaker. The domain
+aggregator selects the fastest allowed mode independently for the morning and
+return journeys, then uses the slower result as the controlling commute. Missing
+or stale direction data is `unknown`, never a hard-rule pass.
+
 ## Current official references
 
 - Routes API usage, per-request/per-element billing, and quotas:

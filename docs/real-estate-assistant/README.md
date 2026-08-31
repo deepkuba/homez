@@ -74,6 +74,7 @@ architecture.
 - [VPS runtime and NAS backup](adr/0009-hosting-topology.md)
 - [Python and PostgreSQL application stack](adr/0010-application-stack.md)
 - [Routes API quota and failure behavior](adr/0011-routing-quota-guard.md)
+- [Implementation plan and slice status](IMPLEMENTATION_PLAN.md)
 - [Email feedback security](adr/0012-email-feedback-links.md)
 - [Safe sharing and delivery schedule](adr/0013-sharing-and-delivery.md)
 - [Primary-market and developer-risk assessment](adr/0014-primary-market-risk.md)

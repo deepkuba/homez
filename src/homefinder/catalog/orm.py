@@ -137,3 +137,30 @@ class IngestionStateRecord(Base):
         DateTime(timezone=True), nullable=True
     )
     last_error: Mapped[str | None] = mapped_column(String(500), nullable=True)
+
+
+class RoutingQuotaLedgerRecord(Base):
+    __tablename__ = "routing_quota_ledger"
+
+    period: Mapped[str] = mapped_column(String(7), primary_key=True)
+    provider: Mapped[str] = mapped_column(String(100), primary_key=True)
+    billable_unit: Mapped[str] = mapped_column(String(50), primary_key=True)
+    allowance: Mapped[int]
+    reserved_units: Mapped[int] = mapped_column(default=0)
+    provider_blocked: Mapped[bool] = mapped_column(default=False)
+    last_alert_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+
+class RouteObservationRecord(Base):
+    __tablename__ = "route_observations"
+
+    cache_key: Mapped[str] = mapped_column(String(500), primary_key=True)
+    goal_version: Mapped[int]
+    direction: Mapped[str] = mapped_column(String(20))
+    mode: Mapped[str] = mapped_column(String(20))
+    duration_minutes: Mapped[int]
+    provider: Mapped[str] = mapped_column(String(100))
+    observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    confidence: Mapped[Decimal] = mapped_column(Numeric(4, 3))

@@ -35,6 +35,8 @@
 | Near miss | Ineligible property that narrowly fails one or a small number of filters while scoring strongly on the remaining needs. |
 | Commute destination | A versioned geocoded address against which door-to-door travel is measured; the initial destination is ul. Podbrzezie 6, Krakow. |
 | Routing goal | Versioned per-destination rule containing maximum journey time, direction/time windows, allowed modes, whether it is required or preferred, and scoring behavior. |
+| Route observation | A provider result for one mode and direction, retained with its query time, duration, confidence, provider, and routing-goal version. |
+| Route freshness | Whether a route observation is within the routing goal's configured age; stale or missing observations are unknown for hard eligibility. |
 | Building scale | Estimated resident density described by dwelling count, dwelling count per entrance/stairwell, number of entrances, and floors; distinct from construction technology or age. |
 | Entrance-level dwelling count | Estimated number of apartments whose occupants normally share the candidate apartment's exterior entrance and circulation core; the primary building-scale measure for this buyer. |
 | Seller mortgage | Mortgage currently securing the seller's debt; acceptable to this buyer only when a verified transaction procedure repays the lender and enables deletion of the mortgage from the register. |
