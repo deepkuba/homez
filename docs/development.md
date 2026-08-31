@@ -103,3 +103,19 @@ Feedback mutation is POST-only and checks CSRF before recording an auditable
 event. Production delivery must provide persistent implementations backed by
 migration `20260831_06`, a real mail sender, and a scheduler for Friday 10:00
 `Europe/Warsaw`. Do not put feedback URLs in shared content.
+
+## Environmental and building enrichment
+
+Slice 7 provides `homefinder.enrichment.environment` as a provider-independent
+boundary for open-data adapters. `EnvironmentalEnricher` records evidence source,
+observation date, and confidence for address, road/noise, green-space, floor,
+elevator, and building-scale facts. Missing values remain unknown; moderate noise
+is not converted into a false quiet result, and environmental facts cannot create
+a hard matching rejection. Evidence older than the configured freshness window
+must be treated as stale by callers.
+
+The minimal manual correction contract is `POST /corrections/{property_id}` with
+`field`, `value`, `corrected_by`, and `reason`. Corrections are append-only and
+auditable. The endpoint and in-memory store are suitable for development only;
+production persistence must use migration `20260831_07` and add authentication/
+authorization before exposure.

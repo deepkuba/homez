@@ -5,6 +5,7 @@ from pydantic import BaseModel
 
 from homefinder.config import Settings
 from homefinder.digest.feedback import FeedbackError
+from homefinder.enrichment.environment import ManualCorrectionStore
 
 
 class FeedbackPayload(BaseModel):
@@ -12,10 +13,18 @@ class FeedbackPayload(BaseModel):
     value: str
 
 
+class CorrectionPayload(BaseModel):
+    field: str
+    value: str
+    corrected_by: str
+    reason: str
+
+
 def create_app(settings: Settings | None = None) -> FastAPI:
     application = FastAPI(title="Homefinder", docs_url=None, redoc_url=None)
     application.state.settings = settings or Settings()
     application.state.feedback_service = None
+    application.state.correction_store = ManualCorrectionStore()
 
     @application.get("/health", include_in_schema=False)
     def health() -> dict[str, str]:
@@ -45,6 +54,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 listing_id=listing_id,
             )
         except FeedbackError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+        return {"status": "recorded"}
+
+    @application.post("/corrections/{property_id}")
+    def correction(property_id: str, payload: CorrectionPayload) -> dict[str, str]:
+        try:
+            application.state.correction_store.record(
+                property_id=property_id,
+                field=payload.field,
+                value=payload.value,
+                corrected_by=payload.corrected_by,
+                reason=payload.reason,
+                corrected_at=datetime.now(timezone.utc),
+            )
+        except ValueError as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
         return {"status": "recorded"}
 

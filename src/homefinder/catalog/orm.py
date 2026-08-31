@@ -196,3 +196,28 @@ class FeedbackEventRecord(Base):
     listing_id: Mapped[str] = mapped_column(String(100))
     value: Mapped[str] = mapped_column(String(20))
     recorded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class EnvironmentalEvidenceRecord(Base):
+    __tablename__ = "environmental_evidence"
+    __table_args__ = (UniqueConstraint("property_id", "field", "observed_at"),)
+
+    id: Mapped[UUID] = mapped_column(primary_key=True)
+    property_id: Mapped[str] = mapped_column(String(100), index=True)
+    field: Mapped[str] = mapped_column(String(100))
+    value: Mapped[str] = mapped_column(Text)
+    source: Mapped[str] = mapped_column(String(255))
+    observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    confidence: Mapped[Decimal] = mapped_column(Numeric(4, 3))
+
+
+class EnvironmentalCorrectionRecord(Base):
+    __tablename__ = "environmental_corrections"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True)
+    property_id: Mapped[str] = mapped_column(String(100), index=True)
+    field: Mapped[str] = mapped_column(String(100))
+    value: Mapped[str] = mapped_column(Text)
+    corrected_by: Mapped[str] = mapped_column(String(200))
+    reason: Mapped[str] = mapped_column(Text)
+    corrected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))

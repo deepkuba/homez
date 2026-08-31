@@ -41,6 +41,9 @@
 | Entrance-level dwelling count | Estimated number of apartments whose occupants normally share the candidate apartment's exterior entrance and circulation core; the primary building-scale measure for this buyer. |
 | Seller mortgage | Mortgage currently securing the seller's debt; acceptable to this buyer only when a verified transaction procedure repays the lender and enables deletion of the mortgage from the register. |
 | Clean-title outcome | Required transaction result in which ownership transfers without surviving seller mortgage or other unacceptable right/claim; distinct from the register being clean when the listing is first discovered. |
+| Environmental evidence | Dated source observation supporting an address, road/noise, green-space, floor/elevator, or building-scale fact. |
+| Noise risk | Conservative soft signal derived from road indicators; `unknown` means there is insufficient evidence and is not equivalent to high noise. |
+| Manual correction | Buyer-provided, append-only correction to an enriched fact, retained with actor, time, and reason. |
 
 ## Terms requiring clarification
 

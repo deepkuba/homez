@@ -1,6 +1,6 @@
 # Implementation Plan
 
-- Status: In progress; Slices 0-6 implemented with synthetic fixtures
+- Status: In progress; Slices 0-7 implemented with synthetic fixtures
 - Date: 2026-08-31
 - Delivery mode: incremental implementation; no production integration is enabled
 
@@ -333,6 +333,10 @@ approved shadow report. Do not wait for every enrichment below.
 
 ### Slice 7 — Environmental and building enrichment
 
+**Status:** Implemented 31 August 2026 as a provider-independent enrichment
+increment. Open-data adapters remain deployment work; manual corrections are
+currently an in-memory contract backed by the new migration schema.
+
 **Coding agent:** address confidence, road/noise indicators, green-space distances,
 floor/elevator consistency, entrance-level dwelling estimates, evidence freshness,
 and manual correction UI. Start with official/open datasets and conservative
@@ -343,6 +347,15 @@ for actual noise, entrance size, and surroundings.
 
 **Exit:** enrichment cannot turn missing evidence into a hard rejection and every
 derived fact identifies its source/date.
+
+**Implemented:** `EnvironmentalEnricher` derives address confidence, road
+indicators, conservative noise risk, green-space distance, floor/elevator facts,
+and entrance/building dwelling estimates. `EnvironmentalFacts` keeps missing
+values unknown, maps only known values into matching facts, and exposes explicit
+freshness checks. The correction store and `/corrections/{property_id}` endpoint
+record who changed which field and why; migration `20260831_07` persists both
+source evidence and correction history. Noise is a soft ranking signal and no
+environmental absence creates a hard rejection.
 
 ### Slice 8 — Renovation and comparable workflow
 
@@ -483,7 +496,8 @@ separate from code completion.
 
 ## 11. Recommended next action
 
-Slice 6 is ready for buyer review of HTML/plain-text and mobile feedback previews,
+Slice 7 is ready for buyer validation against known Krakow examples, especially
+noise, entrance size, and surroundings. Slice 6 is ready for buyer review of HTML/plain-text and mobile feedback previews,
 recipient selection, and delivery-domain/DNS decisions. The first usable release
 can proceed as a shadow report after production persistence, mail transport,
 OAuth, source approvals, and Google route sandbox checks are completed.

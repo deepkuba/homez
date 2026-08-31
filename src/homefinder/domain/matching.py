@@ -30,6 +30,7 @@ class PropertyFacts:
     has_elevator: bool | None = None
     usable_layout: bool | None = None
     building_dwellings: int | None = None
+    entrance_dwellings: int | None = None
     commute_minutes: int | None = None
     parking_possible: bool | None = None
     ready_to_move: bool | None = None
