@@ -28,7 +28,11 @@ def upgrade() -> None:
         sa.Column("role", sa.String(40), nullable=False),
         sa.Column("registration_reference", sa.String(255)),
     )
-    op.create_index("ix_primary_market_entities_project_id", "primary_market_entities", ["project_id"])
+    op.create_index(
+        "ix_primary_market_entities_project_id",
+        "primary_market_entities",
+        ["project_id"],
+    )
     op.create_table(
         "primary_market_evidence",
         sa.Column("id", sa.String(100), primary_key=True),
@@ -41,7 +45,11 @@ def upgrade() -> None:
         sa.Column("permitted", sa.Boolean(), nullable=False),
         sa.Column("summary", sa.Text(), nullable=False, server_default=""),
     )
-    op.create_index("ix_primary_market_evidence_project_id", "primary_market_evidence", ["project_id"])
+    op.create_index(
+        "ix_primary_market_evidence_project_id",
+        "primary_market_evidence",
+        ["project_id"],
+    )
     op.create_table(
         "primary_market_risks",
         sa.Column("id", sa.Uuid(), primary_key=True),
@@ -52,7 +60,9 @@ def upgrade() -> None:
         sa.Column("evidence_ids", sa.Text(), nullable=False),
         sa.Column("observed_at", sa.DateTime(timezone=True), nullable=False),
     )
-    op.create_index("ix_primary_market_risks_project_id", "primary_market_risks", ["project_id"])
+    op.create_index(
+        "ix_primary_market_risks_project_id", "primary_market_risks", ["project_id"]
+    )
     op.create_table(
         "primary_market_manual_tasks",
         sa.Column("id", sa.Uuid(), primary_key=True),
@@ -64,16 +74,26 @@ def upgrade() -> None:
         sa.Column("completed_at", sa.DateTime(timezone=True)),
         sa.UniqueConstraint("project_id", "subject", "reason"),
     )
-    op.create_index("ix_primary_market_tasks_status", "primary_market_manual_tasks", ["status"])
+    op.create_index(
+        "ix_primary_market_tasks_status", "primary_market_manual_tasks", ["status"]
+    )
 
 
 def downgrade() -> None:
-    op.drop_index("ix_primary_market_tasks_status", table_name="primary_market_manual_tasks")
+    op.drop_index(
+        "ix_primary_market_tasks_status", table_name="primary_market_manual_tasks"
+    )
     op.drop_table("primary_market_manual_tasks")
-    op.drop_index("ix_primary_market_risks_project_id", table_name="primary_market_risks")
+    op.drop_index(
+        "ix_primary_market_risks_project_id", table_name="primary_market_risks"
+    )
     op.drop_table("primary_market_risks")
-    op.drop_index("ix_primary_market_evidence_project_id", table_name="primary_market_evidence")
+    op.drop_index(
+        "ix_primary_market_evidence_project_id", table_name="primary_market_evidence"
+    )
     op.drop_table("primary_market_evidence")
-    op.drop_index("ix_primary_market_entities_project_id", table_name="primary_market_entities")
+    op.drop_index(
+        "ix_primary_market_entities_project_id", table_name="primary_market_entities"
+    )
     op.drop_table("primary_market_entities")
     op.drop_table("primary_market_projects")

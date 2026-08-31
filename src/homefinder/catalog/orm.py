@@ -6,6 +6,7 @@ from sqlalchemy import (
     CheckConstraint,
     DateTime,
     ForeignKey,
+    Index,
     LargeBinary,
     Numeric,
     String,
@@ -264,3 +265,67 @@ class RenovationAttachmentRecord(Base):
     size_bytes: Mapped[int]
     sha256: Mapped[str] = mapped_column(String(64))
     uploaded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class PrimaryMarketProjectRecord(Base):
+    __tablename__ = "primary_market_projects"
+
+    id: Mapped[str] = mapped_column(String(100), primary_key=True)
+    name: Mapped[str] = mapped_column(String(255))
+    normal_eligibility: Mapped[str] = mapped_column(String(20))
+    overall_concern: Mapped[str] = mapped_column(String(30))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class PrimaryMarketEntityRecord(Base):
+    __tablename__ = "primary_market_entities"
+
+    id: Mapped[str] = mapped_column(String(100), primary_key=True)
+    project_id: Mapped[str] = mapped_column(String(100), index=True)
+    name: Mapped[str] = mapped_column(String(255))
+    role: Mapped[str] = mapped_column(String(40))
+    registration_reference: Mapped[str | None] = mapped_column(String(255))
+
+
+class PrimaryMarketEvidenceRecord(Base):
+    __tablename__ = "primary_market_evidence"
+
+    id: Mapped[str] = mapped_column(String(100), primary_key=True)
+    project_id: Mapped[str] = mapped_column(String(100), index=True)
+    subject_id: Mapped[str] = mapped_column(String(100))
+    kind: Mapped[str] = mapped_column(String(50))
+    source: Mapped[str] = mapped_column(String(255))
+    reference: Mapped[str] = mapped_column(String(500))
+    observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    permitted: Mapped[bool]
+    summary: Mapped[str] = mapped_column(Text, default="")
+
+
+class PrimaryMarketRiskRecord(Base):
+    __tablename__ = "primary_market_risks"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True)
+    project_id: Mapped[str] = mapped_column(String(100), index=True)
+    dimension: Mapped[str] = mapped_column(String(60))
+    level: Mapped[str] = mapped_column(String(30))
+    facts: Mapped[str] = mapped_column(Text)
+    evidence_ids: Mapped[str] = mapped_column(Text)
+    observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class PrimaryMarketManualTaskRecord(Base):
+    __tablename__ = "primary_market_manual_tasks"
+    __table_args__ = (
+        UniqueConstraint("project_id", "subject", "reason"),
+        Index("ix_primary_market_tasks_status", "status"),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True)
+    project_id: Mapped[str] = mapped_column(String(100))
+    subject: Mapped[str] = mapped_column(String(100))
+    reason: Mapped[str] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(20), default="pending")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    completed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
