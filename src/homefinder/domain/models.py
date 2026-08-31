@@ -50,6 +50,22 @@ class ListingSnapshot:
 class PropertyCandidate:
     id: UUID
     listing_ids: tuple[UUID, ...]
+    deterministic_key: str
+
+
+@dataclass(frozen=True, slots=True)
+class DuplicateEvidence:
+    listing_id: UUID
+    possible_listing_id: UUID
+    confidence: Decimal
+    reasons: tuple[str, ...]
+    status: str
+
+
+@dataclass(frozen=True, slots=True)
+class ResurfaceDecision:
+    resurface: bool
+    reason: str
 
 
 @dataclass(frozen=True, slots=True)

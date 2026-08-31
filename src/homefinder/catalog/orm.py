@@ -2,7 +2,16 @@ from datetime import datetime
 from decimal import Decimal
 from uuid import UUID
 
-from sqlalchemy import DateTime, ForeignKey, Numeric, String, Text, UniqueConstraint
+from sqlalchemy import (
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    LargeBinary,
+    Numeric,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -48,8 +57,10 @@ class ListingSnapshotRecord(Base):
 
 class PropertyCandidateRecord(Base):
     __tablename__ = "property_candidates"
+    __table_args__ = (UniqueConstraint("deterministic_key"),)
 
     id: Mapped[UUID] = mapped_column(primary_key=True)
+    deterministic_key: Mapped[str] = mapped_column(String(500))
 
 
 class CandidateListingRecord(Base):
@@ -61,6 +72,36 @@ class CandidateListingRecord(Base):
     listing_id: Mapped[UUID] = mapped_column(
         ForeignKey("listings.id"), primary_key=True
     )
+
+
+class DuplicateEvidenceRecord(Base):
+    __tablename__ = "duplicate_evidence"
+    __table_args__ = (
+        UniqueConstraint("listing_id", "possible_listing_id"),
+        CheckConstraint(
+            "listing_id <> possible_listing_id", name="duplicate_evidence_check"
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True)
+    listing_id: Mapped[UUID] = mapped_column(ForeignKey("listings.id"), index=True)
+    possible_listing_id: Mapped[UUID] = mapped_column(
+        ForeignKey("listings.id"), index=True
+    )
+    confidence: Mapped[Decimal] = mapped_column(Numeric(4, 3))
+    reasons: Mapped[str] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(20), default="pending")
+
+
+class CandidatePresentationRecord(Base):
+    __tablename__ = "candidate_presentations"
+    id: Mapped[UUID] = mapped_column(primary_key=True)
+    candidate_id: Mapped[UUID] = mapped_column(
+        ForeignKey("property_candidates.id"), index=True
+    )
+    snapshot_id: Mapped[UUID] = mapped_column(ForeignKey("listing_snapshots.id"))
+    presented_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    dismissed: Mapped[bool] = mapped_column(default=False)
 
 
 class SourceMessageRecord(Base):
@@ -76,3 +117,23 @@ class SourceMessageRecord(Base):
     listing_id: Mapped[UUID] = mapped_column(ForeignKey("listings.id"))
     snapshot_id: Mapped[UUID] = mapped_column(ForeignKey("listing_snapshots.id"))
     candidate_id: Mapped[UUID] = mapped_column(ForeignKey("property_candidates.id"))
+
+
+class QuarantinedMessageRecord(Base):
+    __tablename__ = "quarantined_messages"
+
+    provider_message_id: Mapped[str] = mapped_column(String(255), primary_key=True)
+    source_key: Mapped[str] = mapped_column(String(100), index=True)
+    received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    raw_message: Mapped[bytes] = mapped_column(LargeBinary)
+    reason: Mapped[str] = mapped_column(String(500))
+
+
+class IngestionStateRecord(Base):
+    __tablename__ = "ingestion_states"
+
+    source_key: Mapped[str] = mapped_column(String(100), primary_key=True)
+    last_success_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    last_error: Mapped[str | None] = mapped_column(String(500), nullable=True)
