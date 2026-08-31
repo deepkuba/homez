@@ -78,7 +78,9 @@ class DuplicateEvidenceRecord(Base):
     __tablename__ = "duplicate_evidence"
     __table_args__ = (
         UniqueConstraint("listing_id", "possible_listing_id"),
-        CheckConstraint("listing_id <> possible_listing_id"),
+        CheckConstraint(
+            "listing_id <> possible_listing_id", name="duplicate_evidence_check"
+        ),
     )
 
     id: Mapped[UUID] = mapped_column(primary_key=True)
