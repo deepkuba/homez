@@ -1,10 +1,10 @@
 # Homez
 
-Private, explainable home-finding assistant. The implemented slices currently
-cover sanitized alert ingestion, normalized catalog previews, and fixture-backed
-Gmail polling with encrypted token storage, source policies, quarantine, and
-idempotent label handling. Live Gmail OAuth and real portal contracts are still
-buyer-enabled work.
+Private, explainable home-finding assistant. Implemented slices cover sanitized
+alert ingestion, catalog history and deduplication, governed Gmail polling, and
+fixture-backed profile, cost, eligibility, explainable ranking, and separate
+compliant/exploration slate selection. Live Gmail OAuth, real portal contracts,
+and buyer approval of provisional profile values remain outstanding.
 
 See [the implementation plan](docs/real-estate-assistant/IMPLEMENTATION_PLAN.md)
 and [local development instructions](docs/development.md).
