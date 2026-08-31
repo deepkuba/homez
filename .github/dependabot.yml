@@ -5,6 +5,12 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    # Keep the application dependency set and requirements.lock in one PR so
+    # related upgrades cannot diverge or conflict in pyproject.toml.
+    groups:
+      python-dependencies:
+        patterns:
+          - "*"
 
   - package-ecosystem: github-actions
     directory: /

@@ -45,6 +45,12 @@ without coupling matching to a provider. Missing hard-rule facts remain
 renovation outcomes explicit, and `select_slate` never mixes exploration into
 compliant results. Golden cases are in `tests/unit/test_slice4_matching.py`.
 
+Dependabot groups Python dependency upgrades into one pull request so the
+declaration and `requirements.lock` move together. Before merging dependency
+updates, refresh the branch onto `main` and require both CI jobs to pass; this
+also exercises the current Alembic metadata against PostGIS and the Compose
+image rather than validating an obsolete base revision.
+
 ## Gmail polling
 
 Slice 2 provides a governed polling command. It expects an OAuth token envelope
