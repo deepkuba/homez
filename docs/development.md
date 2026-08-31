@@ -119,3 +119,16 @@ The minimal manual correction contract is `POST /corrections/{property_id}` with
 auditable. The endpoint and in-memory store are suitable for development only;
 production persistence must use migration `20260831_07` and add authentication/
 authorization before exposure.
+
+## Renovation and comparable workflow
+
+Slice 8 provides `homefinder.enrichment.renovation`. Build an estimate from
+`RenovationItem` packages and pass it to `RenovationWorkflow.assess` with dated
+`Comparable` evidence. The workflow selects comparables at or above its
+similarity threshold (0.70 by default), calculates the adjusted advantage using
+the high estimate plus contingency, and returns `PASS`, `FAIL`, or `UNKNOWN`.
+`UNKNOWN` is expected for weak evidence or an incomplete
+`HabitabilityChecklist`; callers must route it to manual review. Use
+`AttachmentMetadata` for quote/inspection metadata only. Persistence is
+prepared by migration `20260831_08`; uploaded files need protected external
+storage and authorization before production use.

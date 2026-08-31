@@ -2,8 +2,8 @@
 
 Private, explainable home-finding assistant. Implemented slices cover sanitized
 alert ingestion, catalog history and deduplication, governed Gmail polling,
-fixture-backed profile/ranking, routing, digest/feedback, and conservative
-environmental/building enrichment.
+fixture-backed profile/ranking, routing, digest/feedback, environmental/building
+enrichment, and conservative renovation/comparable assessment.
 Live Gmail OAuth, real portal contracts, mail transport, and buyer approval of
 provisional profile values remain outstanding.
 

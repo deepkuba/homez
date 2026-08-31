@@ -221,3 +221,46 @@ class EnvironmentalCorrectionRecord(Base):
     corrected_by: Mapped[str] = mapped_column(String(200))
     reason: Mapped[str] = mapped_column(Text)
     corrected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class RenovationScopeRecord(Base):
+    __tablename__ = "renovation_scope_items"
+    __table_args__ = (UniqueConstraint("property_id", "name"),)
+
+    id: Mapped[UUID] = mapped_column(primary_key=True)
+    property_id: Mapped[str] = mapped_column(String(100), index=True)
+    name: Mapped[str] = mapped_column(String(200))
+    low_minor: Mapped[int]
+    base_minor: Mapped[int]
+    high_minor: Mapped[int]
+    required: Mapped[bool] = mapped_column(default=True)
+    note: Mapped[str] = mapped_column(Text, default="")
+    observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class RenovationComparableRecord(Base):
+    __tablename__ = "renovation_comparables"
+    __table_args__ = (UniqueConstraint("property_id", "comparable_id"),)
+
+    id: Mapped[UUID] = mapped_column(primary_key=True)
+    property_id: Mapped[str] = mapped_column(String(100), index=True)
+    comparable_id: Mapped[str] = mapped_column(String(100))
+    effective_move_in_minor: Mapped[int]
+    similarity: Mapped[Decimal] = mapped_column(Numeric(4, 3))
+    evidence_source: Mapped[str] = mapped_column(String(255))
+    observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    selected: Mapped[bool] = mapped_column(default=False)
+
+
+class RenovationAttachmentRecord(Base):
+    __tablename__ = "renovation_attachments"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True)
+    property_id: Mapped[str] = mapped_column(String(100), index=True)
+    storage_key: Mapped[str] = mapped_column(String(255), unique=True)
+    kind: Mapped[str] = mapped_column(String(50))
+    filename: Mapped[str] = mapped_column(String(255))
+    content_type: Mapped[str] = mapped_column(String(100))
+    size_bytes: Mapped[int]
+    sha256: Mapped[str] = mapped_column(String(64))
+    uploaded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))

@@ -166,3 +166,21 @@ listing-specific fees must replace the provisional envelope.
 The automation may estimate affordability scenarios, but it should not decide
 how much debt is safe. Final financing and legal conclusions require current
 offers/documents and appropriately qualified professional review.
+
+## Renovation workflow (Slice 8)
+
+Renovation work is recorded as named packages—such as electrics, bathroom,
+windows, or finishing—with low, base, and high amounts. The contingency reserve
+is calculated from the high total (15% by default) and the normal eligibility
+comparison uses only the high estimate plus that reserve:
+
+`comparable move-in-ready price - purchase price - mandatory extras - high works - contingency`
+
+A non-negative result is a conservative pass; a negative result fails. The
+workflow uses only sufficiently similar, dated move-in-ready comparables. Weak
+or missing comparables never create a bargain or an eligibility pass and are
+marked for manual review. Habitability checks (utilities, bathroom, kitchen,
+heating, and windows) are separately tracked because an attractive cost range
+does not establish that a property is ready to occupy. Quotes and inspection
+reports are represented by metadata and external storage keys; the application
+does not treat an attachment as professional approval.

@@ -1,6 +1,6 @@
 # Implementation Plan
 
-- Status: In progress; Slices 0-7 implemented with synthetic fixtures
+- Status: In progress; Slices 0-8 implemented with synthetic fixtures
 - Date: 2026-08-31
 - Delivery mode: incremental implementation; no production integration is enabled
 
@@ -359,6 +359,10 @@ environmental absence creates a hard rejection.
 
 ### Slice 8 — Renovation and comparable workflow
 
+**Status:** Implemented 31 August 2026 as a provider-independent, conservative
+renovation workflow. Contractor/inspector integrations and buyer-approved
+comparables remain deployment and review work.
+
 **Coding agent:** itemized scope, low/base/high estimates, contingency, comparable
 selection/explanation, conservative eligibility rule, habitability checklist,
 and quote/document attachments metadata.
@@ -368,6 +372,17 @@ contractor quotations for serious candidates; approve comparable sets.
 
 **Exit:** only high estimate plus contingency controls normal eligibility, and
 weak comparables produce low confidence/manual review.
+
+**Implemented:** `RenovationItem` and `RenovationEstimate` retain itemized work
+packages and low/base/high totals. Contingency is calculated from the high total
+only, and `RenovationWorkflow` compares purchase plus mandatory extras plus high
+works and contingency with the median of sufficiently similar move-in-ready
+comparables. A non-negative adjusted advantage passes; a negative advantage
+fails; missing or weak comparables and incomplete habitability evidence remain
+unknown and require manual review. `HabitabilityChecklist` reports missing
+checks, while `AttachmentMetadata` records safe metadata for quotes and
+inspection documents without importing their contents. Migration
+`20260831_08` adds scope, comparable, and attachment metadata tables.
 
 ### Slice 9 — Primary-market risk dossier
 
