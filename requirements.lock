@@ -6,6 +6,8 @@
 #
 alembic==1.19.1
     # via homefinder (pyproject.toml)
+cffi==2.1.1
+    # via cryptography
 annotated-doc==0.0.5
     # via fastapi
 annotated-types==0.8.0
@@ -14,6 +16,10 @@ anyio==4.14.2
     # via starlette
 click==8.5.0
     # via uvicorn
+cryptography==50.0.0
+    # via homefinder (pyproject.toml)
+pycparser==3.0
+    # via cffi
 exceptiongroup==1.3.1
     # via anyio
 fastapi==0.135.3

@@ -29,6 +29,41 @@ contains no personal data or working token.
 Opening `preview.html` shows the normalized listing card. Running the command
 again against the default local database is idempotent.
 
+Catalog history and deduplication are covered by
+`tests/unit/test_slice3_catalog.py`. Exact duplicate identity is automatic only
+for matching normalized alert facts; fuzzy matches are retained as pending
+evidence for buyer review. Candidate merge, split, and resurfacing decisions
+are repository operations and do not discard listing snapshots.
+
+## Profile and ranking
+
+Slice 4 is implemented as a pure domain layer in `homefinder.domain.profile`,
+`homefinder.domain.costs`, `homefinder.domain.matching`, and
+`homefinder.domain.ranking`. `PropertyFacts` accepts normalized or enriched facts
+without coupling matching to a provider. Missing hard-rule facts remain
+`unknown`; only all-pass results are compliant. `CostEstimate` keeps low/base/high
+renovation outcomes explicit, and `select_slate` never mixes exploration into
+compliant results. Golden cases are in `tests/unit/test_slice4_matching.py`.
+
+## Gmail polling
+
+Slice 2 provides a governed polling command. It expects an OAuth token envelope
+encrypted by `EncryptedTokenStore`; the encryption key is supplied separately as
+base64 and must never be committed:
+
+```bash
+.venv/bin/homefinder poll-gmail \
+  --token-file /run/secrets/homefinder-gmail-token.json \
+  --encryption-key "$HOMEFINDER_GMAIL_TOKEN_KEY"
+```
+
+The current CLI registers only the sanitized `sample_portal` policy. It polls
+the selected Gmail label, marks successfully handled messages with
+`HOMEZ_PROCESSED`, quarantines malformed messages with `HOMEZ_QUARANTINE`, and
+leaves transient failures labeled for retry. Page fetching is disabled by the
+default source policy. Real portal policies must not be enabled until their
+access method and terms have been reviewed and approved.
+
 ## Migrations
 
 For a local SQLite smoke test:

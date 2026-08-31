@@ -62,6 +62,7 @@ architecture.
 - [Glossary](glossary.md)
 - [Buyer profile](buyer-profile.md)
 - [Budget model](budget-model.md)
+- [Catalog history and duplicate review](catalog-history.md)
 - [Architecture decision record](adr/0001-delivery-shape.md)
 - [Commute-based search area decision](adr/0002-commute-based-search-area.md)
 - [Exploration listing decision](adr/0003-exploration-slot.md)
