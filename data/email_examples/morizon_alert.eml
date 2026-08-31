@@ -1,0 +1,22 @@
+Message-ID: <morizon-alert-001@example.com>
+Date: Mon, 31 Aug 2026 15:00:00 +0200
+From: Morizon Example Alerts <alerts@example.com>
+To: email@example.com
+Subject: Example Morizon property alert
+X-Homez-Source: morizon
+MIME-Version: 1.0
+Content-Type: text/html; charset="utf-8"
+
+<!doctype html>
+<html lang="en">
+  <body>
+    <article data-listing-id="morizon-example-001">
+      <h2 data-field="title">Example three-room apartment</h2>
+      <a data-field="url" href="https://example.com/listings/morizon-example-001">View example listing</a>
+      <span data-field="price">800000 PLN</span>
+      <span data-field="area">60 m2</span>
+      <span data-field="rooms">3</span>
+      <span data-field="location">Example District</span>
+    </article>
+  </body>
+</html>

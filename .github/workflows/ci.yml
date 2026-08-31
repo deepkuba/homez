@@ -48,6 +48,10 @@ jobs:
       - run: ruff format --check .
       - run: ruff check .
       - run: mypy src
+      - name: Reject unsafe email fixtures
+        run: >-
+          python -m homefinder.fixture_safety
+          data/email_examples tests/fixtures
       - run: pytest
       - run: >-
           pip-audit --requirement requirements.lock --no-deps --disable-pip

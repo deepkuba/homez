@@ -1,0 +1,22 @@
+Message-ID: <gratka-alert-001@example.com>
+Date: Mon, 31 Aug 2026 15:01:00 +0200
+From: Gratka Example Alerts <alerts@example.com>
+To: email@example.com
+Subject: Example Gratka property alert
+X-Homez-Source: gratka
+MIME-Version: 1.0
+Content-Type: text/html; charset="utf-8"
+
+<!doctype html>
+<html lang="en">
+  <body>
+    <article data-listing-id="gratka-example-001">
+      <h2 data-field="title">Example two-room apartment</h2>
+      <a data-field="url" href="https://example.com/listings/gratka-example-001">View example listing</a>
+      <span data-field="price">700000 PLN</span>
+      <span data-field="area">50 m2</span>
+      <span data-field="rooms">2</span>
+      <span data-field="location">Example District</span>
+    </article>
+  </body>
+</html>

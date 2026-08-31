@@ -1,0 +1,22 @@
+Message-ID: <otodom-alert-001@example.com>
+Date: Mon, 31 Aug 2026 15:02:00 +0200
+From: Otodom Example Alerts <alerts@example.com>
+To: email@example.com
+Subject: Example Otodom property alert
+X-Homez-Source: otodom
+MIME-Version: 1.0
+Content-Type: text/html; charset="utf-8"
+
+<!doctype html>
+<html lang="en">
+  <body>
+    <article data-listing-id="otodom-example-001">
+      <h2 data-field="title">Example one-room apartment</h2>
+      <a data-field="url" href="https://example.com/listings/otodom-example-001">View example listing</a>
+      <span data-field="price">600000 PLN</span>
+      <span data-field="area">40 m2</span>
+      <span data-field="rooms">1</span>
+      <span data-field="location">Example District</span>
+    </article>
+  </body>
+</html>

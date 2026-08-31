@@ -20,6 +20,22 @@ python -m venv .venv
 The committed sample is synthetic and uses reserved `.invalid` domains. It
 contains no personal data or working token.
 
+All committed `.eml` files must use reserved `.invalid` or `example.com`,
+`example.net`, or `example.org` addresses and URLs. Raw exports from a mailbox
+must never be added to Git, even temporarily: transport headers, tracking URLs,
+unsubscribe links, and message identifiers can identify the recipient after the
+visible address is replaced. Check fixtures locally with:
+
+```bash
+.venv/bin/python -m homefinder.fixture_safety \
+  data/email_examples tests/fixtures
+```
+
+CI runs the same check. New parser fixtures should be regenerated as minimal
+contract examples rather than redacting a full delivered message. Follow the
+[alert fixture cleanup runbook](security/alert-fixture-cleanup.md) if unsafe mail
+has entered Git history.
+
 ```bash
 .venv/bin/homefinder preview \
   tests/fixtures/sample_portal/valid_alert.eml \
