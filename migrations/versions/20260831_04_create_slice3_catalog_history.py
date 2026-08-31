@@ -37,7 +37,9 @@ def upgrade() -> None:
         sa.Column("confidence", sa.Numeric(4, 3), nullable=False),
         sa.Column("reasons", sa.Text(), nullable=False),
         sa.Column("status", sa.String(20), nullable=False, server_default="pending"),
-        sa.CheckConstraint("listing_id <> possible_listing_id"),
+        sa.CheckConstraint(
+            "listing_id <> possible_listing_id", name="duplicate_evidence_check"
+        ),
         sa.ForeignKeyConstraint(["listing_id"], ["listings.id"]),
         sa.ForeignKeyConstraint(["possible_listing_id"], ["listings.id"]),
         sa.PrimaryKeyConstraint("id"),
