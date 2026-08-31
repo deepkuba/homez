@@ -35,6 +35,16 @@ for matching normalized alert facts; fuzzy matches are retained as pending
 evidence for buyer review. Candidate merge, split, and resurfacing decisions
 are repository operations and do not discard listing snapshots.
 
+## Profile and ranking
+
+Slice 4 is implemented as a pure domain layer in `homefinder.domain.profile`,
+`homefinder.domain.costs`, `homefinder.domain.matching`, and
+`homefinder.domain.ranking`. `PropertyFacts` accepts normalized or enriched facts
+without coupling matching to a provider. Missing hard-rule facts remain
+`unknown`; only all-pass results are compliant. `CostEstimate` keeps low/base/high
+renovation outcomes explicit, and `select_slate` never mixes exploration into
+compliant results. Golden cases are in `tests/unit/test_slice4_matching.py`.
+
 ## Gmail polling
 
 Slice 2 provides a governed polling command. It expects an OAuth token envelope

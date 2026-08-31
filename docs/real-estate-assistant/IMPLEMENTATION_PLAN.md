@@ -1,6 +1,6 @@
 # Implementation Plan
 
-- Status: In progress; Slices 0-3 implemented with synthetic fixtures
+- Status: In progress; Slices 0-4 implemented with synthetic fixtures
 - Date: 2026-08-31
 - Delivery mode: incremental implementation; no production integration is enabled
 
@@ -246,6 +246,25 @@ listings; changed snapshots resurface immediately, unchanged dismissed items
 respect cooldown, and fuzzy duplicate suggestions remain reviewable.
 
 ### Slice 4 — Profile, costs, eligibility, and explainable ranking
+
+**Status:** Implemented 31 August 2026 as a pure domain increment. The active
+profile is versioned and immutable; eligibility uses explicit pass/fail/unknown
+states, while conservative cost estimates, weighted components, confidence, and
+exploration reasons are retained in the result. No listing or buyer profile is
+persisted by this slice yet.
+
+**Implemented:** `BuyerProfile` captures the current discovery defaults, including
+the 45-minute commute goal, 40 m² minimum, 48–55 m² preference band, PLN 800,000
+stretch cap, and weighted preference components. `CostEstimate` exposes
+acquisition, closing, and low/base/high move-in totals. `evaluate` applies hard
+rules without allowing score to override failure; missing facts remain unknown
+and reduce confidence. `select_slate` returns separate, capped compliant and
+exploration results, with deterministic ordering and locality diversification.
+Exploration excludes rentals, known serious legal risk, and non-vacant homes.
+
+The PLN 800,000 cap and unresolved primary-market deadline remain provisional
+until buyer approval. Affordability is an estimate, not mortgage advice; the
+caller must provide the equity/closing amount applicable to its financing model.
 
 **Coding agent:** encode the versioned profile from the discovery docs; implement
 hard tri-state rules, effective all-in cost, initial weighted score, confidence,
