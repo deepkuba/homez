@@ -57,6 +57,7 @@ def run_migrations_online() -> None:
             # PostGIS images add extension schemas to the database search path.
             # Alembic owns application tables in public only.
             connection.exec_driver_sql("SET search_path TO public")
+            connection.commit()
         context.configure(
             connection=connection,
             target_metadata=target_metadata,
