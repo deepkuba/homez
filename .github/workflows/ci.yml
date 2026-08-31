@@ -89,4 +89,8 @@ jobs:
           compose up --detach --wait
           compose exec -T db psql --username homefinder \
             --dbname homefinder --command 'SELECT PostGIS_Version();'
+          catalog_table=$(compose exec -T db psql --username homefinder \
+            --dbname homefinder --tuples-only --no-align \
+            --command "SELECT to_regclass('public.source_messages');")
+          test "$catalog_table" = source_messages
           compose ps

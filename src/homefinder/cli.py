@@ -6,8 +6,11 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
 from homefinder.application.ingest_alert import AlertIngestionService
+from homefinder.application.poll_gmail import GmailPollingService
 from homefinder.catalog.orm import Base
 from homefinder.catalog.repository import SqlAlchemyCatalogRepository
+from homefinder.sources.gmail import EncryptedTokenStore, GmailApiClient
+from homefinder.sources.policy import SourcePolicy, SourcePolicyRegistry
 from homefinder.sources.sample_portal import SamplePortalAlertParser
 
 
@@ -20,16 +23,50 @@ def _parser() -> argparse.ArgumentParser:
     preview.add_argument("fixture", type=Path)
     preview.add_argument("--database-url", default="sqlite:///homefinder-preview.db")
     preview.add_argument("--output", type=Path)
+    poll = commands.add_parser("poll-gmail", help="poll governed Gmail alerts")
+    poll.add_argument("--source", default="sample_portal")
+    poll.add_argument("--database-url", default="sqlite:///homefinder-preview.db")
+    poll.add_argument("--token-file", type=Path, required=True)
+    poll.add_argument("--encryption-key", required=True, help="base64 encoded AES key")
+    poll.add_argument("--label", default="INBOX")
     return parser
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
+    engine = create_engine(args.database_url)
+    Base.metadata.create_all(engine)
+    if args.command == "poll-gmail":
+        import base64
+
+        token = EncryptedTokenStore(base64.urlsafe_b64decode(args.encryption_key)).load(
+            args.token_file
+        )
+        access_token = token.get("access_token")
+        if not isinstance(access_token, str) or not access_token:
+            raise SystemExit("encrypted OAuth token has no access_token")
+        policy = SourcePolicy(
+            key="sample_portal",
+            allowed_senders=frozenset({"alerts@fixtures.homez.invalid"}),
+            allowed_hosts=frozenset({"listings.homez.invalid"}),
+        )
+        with Session(engine) as session:
+            poll_result = GmailPollingService(
+                session=session,
+                gmail=GmailApiClient(access_token),
+                ingestion=AlertIngestionService(
+                    parser=SamplePortalAlertParser(),
+                    catalog=SqlAlchemyCatalogRepository(session),
+                ),
+                policies=SourcePolicyRegistry((policy,)),
+                source_key=args.source,
+                label_id=args.label,
+            ).poll()
+        print(poll_result)
+        return 0
     if args.command != "preview":
         return 2
 
-    engine = create_engine(args.database_url)
-    Base.metadata.create_all(engine)
     with Session(engine) as session:
         result = AlertIngestionService(
             parser=SamplePortalAlertParser(),

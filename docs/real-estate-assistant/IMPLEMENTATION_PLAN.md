@@ -1,7 +1,7 @@
 # Implementation Plan
 
-- Status: In progress; Slices 0-1 implemented with a synthetic fixture
-- Date: 2026-08-30
+- Status: In progress; Slices 0-4 implemented with synthetic fixtures
+- Date: 2026-08-31
 - Delivery mode: incremental implementation; no production integration is enabled
 
 ## 1. Product outcome
@@ -197,18 +197,43 @@ one integration test.
 
 ### Slice 2 — Gmail ingestion and source governance
 
+**Status:** Implemented 31 August 2026 with a fake Gmail contract and the
+sanitized sample-portal alert. Live OAuth consent, real portal fixtures, and
+source-by-source terms approval remain buyer prerequisites.
+
 **Coding agent:** Gmail OAuth adapter, label/state workflow, polling CLI, encrypted
 token loading, source-policy registry, quarantine/retry behavior, source health,
 and contract tests for each approved alert format.
+
+**Implemented:** `GmailApiClient` reads and modifies Gmail messages through the
+Gmail REST API; `EncryptedTokenStore` stores OAuth token JSON using AES-GCM; and
+`GmailPollingService` polls a configured label, ingests by immutable provider
+message ID, applies processed/quarantine labels, preserves malformed raw mail,
+records per-source health, and leaves transient failures available for retry.
+The `poll-gmail` CLI currently registers only the synthetic sample source, whose
+page-fetch policy is disabled. Additional portal parsers and policies must be
+added only after their alert fixtures and access methods are approved.
 
 **Buyer required:** create dedicated Gmail and portal accounts, enable 2FA, create
 saved searches, complete one-time OAuth consent, and approve each source's access
 method after terms review.
 
-**Exit:** live alerts ingest without duplicate processing; no automated page fetch
-occurs for an unapproved source.
+**Exit:** fixture-backed Gmail polling ingests without duplicate processing and
+does not fetch pages for an unapproved source. Live-alert exit evidence is
+blocked until the buyer completes OAuth consent and supplies approved alert
+fixtures for the selected portals.
 
 ### Slice 3 — Catalog history and deduplication
+
+**Status:** Implemented 31 August 2026 with SQLite-backed regression tests and
+an Alembic migration. Deterministic identity links matching normalized alerts
+to one candidate, while conservative fuzzy matches remain pending review.
+
+**Implemented:** immutable listing snapshots, stable duplicate keys, duplicate
+confidence/reason evidence, explicit candidate merge/split operations, and
+presentation history with cooldown/material-change resurfacing decisions.
+Fuzzy evidence is never auto-merged, and manual operations preserve every
+listing and snapshot for auditability.
 
 **Coding agent:** snapshots, availability transitions, price changes, deterministic
 duplicate keys, fuzzy duplicate evidence, manual merge/split controls, cooldowns,
@@ -216,10 +241,30 @@ and material-change rules.
 
 **Buyer:** review a sample of suggested duplicate groups and false positives.
 
-**Exit:** cross-portal fixtures for one property create one candidate with multiple
-listings; changes resurface correctly.
+**Exit:** cross-portal fixture-backed alerts create one candidate with multiple
+listings; changed snapshots resurface immediately, unchanged dismissed items
+respect cooldown, and fuzzy duplicate suggestions remain reviewable.
 
 ### Slice 4 — Profile, costs, eligibility, and explainable ranking
+
+**Status:** Implemented 31 August 2026 as a pure domain increment. The active
+profile is versioned and immutable; eligibility uses explicit pass/fail/unknown
+states, while conservative cost estimates, weighted components, confidence, and
+exploration reasons are retained in the result. No listing or buyer profile is
+persisted by this slice yet.
+
+**Implemented:** `BuyerProfile` captures the current discovery defaults, including
+the 45-minute commute goal, 40 m² minimum, 48–55 m² preference band, PLN 800,000
+stretch cap, and weighted preference components. `CostEstimate` exposes
+acquisition, closing, and low/base/high move-in totals. `evaluate` applies hard
+rules without allowing score to override failure; missing facts remain unknown
+and reduce confidence. `select_slate` returns separate, capped compliant and
+exploration results, with deterministic ordering and locality diversification.
+Exploration excludes rentals, known serious legal risk, and non-vacant homes.
+
+The PLN 800,000 cap and unresolved primary-market deadline remain provisional
+until buyer approval. Affordability is an estimate, not mortgage advice; the
+caller must provide the equity/closing amount applicable to its financing model.
 
 **Coding agent:** encode the versioned profile from the discovery docs; implement
 hard tri-state rules, effective all-in cost, initial weighted score, confidence,
@@ -411,7 +456,7 @@ separate from code completion.
 
 ## 11. Recommended next action
 
-Approve this plan, resolve the primary-market deadline semantics, then execute
-Slice 0. In parallel with Slice 0, the buyer can create the dedicated Gmail and
-portal accounts and collect sanitized sample alerts; no production credentials
-are needed to begin.
+Slice 3 is ready for buyer review of pending duplicate groups and false
+positives. The next coding increment is Slice 4 (profile, costs, eligibility,
+and explainable ranking); live source credentials and production deployment
+remain outside the current delivery boundary.

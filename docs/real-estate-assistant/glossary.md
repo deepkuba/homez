@@ -12,11 +12,14 @@
 | Normalization | Conversion of source-specific fields and units into a common schema. |
 | Deduplication | Linking advertisements believed to describe the same real-world property. |
 | Eligibility | Whether a property candidate satisfies every active hard constraint. |
+| Tri-state rule | A hard-rule result of `pass`, `fail`, or `unknown`; unknown evidence is never silently treated as a pass. |
 | Match score | Explainable measure of how well an eligible property satisfies weighted preferences. It is not an investment valuation. |
+| Effective all-in cost | Acquisition price plus mandatory extras, renovation/finishing, and contingency; the conservative high value is used for renovation eligibility. |
 | Confidence | Estimate of how reliable an extracted or inferred fact is. Unknown facts should remain unknown rather than be treated as negative. |
 | Feedback event | Buyer action or stated reason that may tune future ranking, such as saving a home or rejecting it due to noise. |
 | Digest candidate | A property eligible for the next digest because it is new, materially changed, newly high-ranking, or exceptional value. |
 | Weekly digest | Email containing a small ranked set of digest candidates plus concise explanations and source links. |
+| Compliant/exploration slate | Two separate ranked result sets: compliant homes satisfy every hard rule, while exploration homes visibly explain exceptions and remain subject to safety exclusions. |
 | Source policy | Recorded access method, terms, robots behavior, rate limit, and retention constraints for a listing source. |
 | Vacant possession | Contractual and verified delivery of the home without tenants or other occupants whose rights or presence would prevent immediate possession. |
 | Effective all-in price | Purchase price plus mandatory ancillary property, transaction costs, and estimated immediate works needed for the buyer's intended move-in standard. |
