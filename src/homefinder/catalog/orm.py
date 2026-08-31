@@ -20,6 +20,26 @@ class Base(DeclarativeBase):
     pass
 
 
+class BuyerProfileRecord(Base):
+    __tablename__ = "buyer_profiles"
+    __table_args__ = (
+        CheckConstraint(
+            "(approved_at IS NULL AND approved_by IS NULL) OR "
+            "(approved_at IS NOT NULL AND approved_by IS NOT NULL)",
+            name="ck_buyer_profiles_approval_complete",
+        ),
+    )
+
+    version: Mapped[int] = mapped_column(primary_key=True)
+    effective_from: Mapped[str] = mapped_column(String(10))
+    profile_json: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    approved_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    approved_by: Mapped[str | None] = mapped_column(String(200), nullable=True)
+
+
 class SourceRecord(Base):
     __tablename__ = "sources"
 

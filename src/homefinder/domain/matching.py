@@ -1,9 +1,11 @@
 """Tri-state eligibility, confidence, and explainable match scoring."""
 
 from dataclasses import dataclass
+from datetime import datetime
 from decimal import Decimal
 from enum import Enum
 
+from homefinder.domain.costs import CostEstimate
 from homefinder.domain.profile import BuyerProfile
 
 
@@ -13,20 +15,32 @@ class TriState(str, Enum):
     UNKNOWN = "unknown"
 
 
+class TransactionType(str, Enum):
+    PURCHASE = "purchase"
+    RENTAL = "rental"
+
+
+class MarketType(str, Enum):
+    PRIMARY = "primary"
+    SECONDARY = "secondary"
+
+
 @dataclass(frozen=True, slots=True)
 class PropertyFacts:
     id: str
     title: str = ""
     locality: str | None = None
-    price_minor: int | None = None
+    cost: CostEstimate | None = None
     area_sqm: Decimal | None = None
     rooms: int | None = None
-    purchase_type: str | None = "purchase"
+    transaction_type: TransactionType | None = TransactionType.PURCHASE
+    market_type: MarketType | None = None
     primary_market_eligibility: TriState | None = None
     vacant_possession: bool | None = None
     separate_ownership: bool | None = None
     serious_legal_risk: bool | None = None
     floor: int | None = None
+    building_top_floor: int | None = None
     has_private_garden: bool | None = None
     has_elevator: bool | None = None
     usable_layout: bool | None = None
@@ -40,13 +54,21 @@ class PropertyFacts:
     balcony: bool | None = None
     separate_kitchen: bool | None = None
     score_confidence: Decimal = Decimal("1")
+    last_presented_at: datetime | None = None
+    materially_changed: bool = False
 
 
 @dataclass(frozen=True, slots=True)
 class RuleResult:
     name: str
     state: TriState
-    explanation: str
+    actual: str
+    threshold: str
+    distance: str
+
+    @property
+    def explanation(self) -> str:
+        return f"actual {self.actual}; threshold {self.threshold}; {self.distance}"
 
 
 @dataclass(frozen=True, slots=True)
@@ -71,85 +93,80 @@ class MatchExplanation:
 
 
 def evaluate(facts: PropertyFacts, profile: BuyerProfile) -> MatchExplanation:
+    cost = facts.cost
     rules = (
-        _rule(
+        _boolean_rule(
+            "transaction",
+            None
+            if facts.transaction_type is None
+            else facts.transaction_type == TransactionType.PURCHASE,
             "purchase",
-            facts.purchase_type == "purchase"
-            if facts.purchase_type is not None
-            else None,
-            "purchase only",
+            actual=(
+                str(facts.transaction_type.value)
+                if isinstance(facts.transaction_type, TransactionType)
+                else str(facts.transaction_type)
+                if facts.transaction_type is not None
+                else "unknown"
+            ),
         ),
-        _rule(
+        _state_rule(
             "primary_market_evidence",
             _primary_market_evidence(facts),
-            "critical primary-market evidence is sufficient",
+            "complete dossier with no disqualifying risk",
         ),
-        _rule("vacant_possession", facts.vacant_possession, "delivered vacant"),
-        _rule(
-            "separate_ownership",
-            facts.separate_ownership,
-            "separate ownership required",
-        ),
-        _rule(
+        _boolean_rule("vacant_possession", facts.vacant_possession, "true"),
+        _boolean_rule("separate_ownership", facts.separate_ownership, "true"),
+        _boolean_rule(
             "legal_risk",
             None if facts.serious_legal_risk is None else not facts.serious_legal_risk,
-            "no known serious legal risk",
+            "no serious legal risk",
+            actual=(
+                "unknown"
+                if facts.serious_legal_risk is None
+                else str(facts.serious_legal_risk).lower()
+            ),
         ),
-        _rule(
+        _boolean_rule(
             "locality",
             None
             if facts.locality is None
             else facts.locality.casefold() not in profile.excluded_localities,
-            "locality is not excluded",
+            "not an excluded locality",
+            actual=facts.locality or "unknown",
         ),
-        _rule(
+        _money_max_rule(
             "price",
-            None
-            if facts.price_minor is None
-            else facts.price_minor <= profile.max_purchase_price_minor,
-            f"at or below PLN {profile.max_purchase_price_minor / 100:,.0f}",
+            cost.effective_all_in_high_minor if cost else None,
+            profile.max_purchase_price_minor,
         ),
-        _rule(
-            "area",
-            None if facts.area_sqm is None else facts.area_sqm >= profile.min_area_sqm,
-            f"at least {profile.min_area_sqm} m²",
+        _money_max_rule(
+            "cash",
+            cost.acquisition_cash_high_minor if cost else None,
+            profile.cash_budget_minor,
         ),
-        _rule(
-            "rooms",
-            None if facts.rooms is None else facts.rooms >= profile.min_rooms,
-            "at least two rooms",
+        _money_max_rule(
+            "installment",
+            cost.monthly_installment_minor if cost else None,
+            profile.max_monthly_installment_minor,
         ),
-        _rule(
-            "usable_layout", facts.usable_layout, "living room and separate usable room"
+        _decimal_min_rule("area", facts.area_sqm, profile.min_area_sqm, "m²"),
+        _integer_min_rule("rooms", facts.rooms, profile.min_rooms, "room"),
+        _boolean_rule(
+            "usable_layout",
+            facts.usable_layout,
+            "living room and separate usable room",
         ),
-        _rule(
-            "floor",
-            _floor_state(facts),
-            "not top floor; ground floor requires private garden",
-        ),
-        _rule(
-            "elevator",
-            None
-            if facts.floor is None
-            else True
-            if facts.floor <= 3
-            else facts.has_elevator,
-            "elevator above third floor",
-        ),
-        _rule("parking", facts.parking_possible, "parking possible where required"),
-        _rule(
+        _floor_rule(facts),
+        _elevator_rule(facts),
+        _boolean_rule("parking", facts.parking_possible, "parking possible"),
+        _integer_max_rule(
             "building_scale",
-            None
-            if facts.building_dwellings is None
-            else facts.building_dwellings <= profile.max_building_dwellings,
-            "no more than 80 dwellings",
+            facts.building_dwellings,
+            profile.max_building_dwellings,
+            "dwelling",
         ),
-        _rule(
-            "commute",
-            None
-            if facts.commute_minutes is None
-            else facts.commute_minutes <= profile.max_commute_minutes,
-            "commute within 45 minutes",
+        _integer_max_rule(
+            "commute", facts.commute_minutes, profile.max_commute_minutes, "minute"
         ),
     )
     components = _score_components(facts, profile)
@@ -166,9 +183,9 @@ def evaluate(facts: PropertyFacts, profile: BuyerProfile) -> MatchExplanation:
         ),
     )
     reasons = tuple(
-        f"{r.name}: {r.explanation} ({r.state.value})"
-        for r in rules
-        if r.state is not TriState.PASS
+        f"{rule.name}: {rule.explanation} ({rule.state.value})"
+        for rule in rules
+        if rule.state is not TriState.PASS
     )
     return MatchExplanation(
         rules,
@@ -179,29 +196,165 @@ def evaluate(facts: PropertyFacts, profile: BuyerProfile) -> MatchExplanation:
     )
 
 
-def _rule(name: str, value: bool | None, requirement: str) -> RuleResult:
+def _state_rule(name: str, state: TriState, threshold: str) -> RuleResult:
+    distance = (
+        "meets threshold"
+        if state is TriState.PASS
+        else "evidence disqualifies"
+        if state is TriState.FAIL
+        else "distance unknown"
+    )
+    return RuleResult(name, state, state.value, threshold, distance)
+
+
+def _boolean_rule(
+    name: str, value: bool | None, threshold: str, *, actual: str | None = None
+) -> RuleResult:
     state = (
         TriState.UNKNOWN if value is None else TriState.PASS if value else TriState.FAIL
     )
-    return RuleResult(name, state, requirement)
+    actual_value = actual or ("unknown" if value is None else str(value).lower())
+    distance = (
+        "distance unknown"
+        if value is None
+        else "meets threshold"
+        if value
+        else f"actual {actual_value} does not meet requirement"
+    )
+    return RuleResult(name, state, actual_value, threshold, distance)
 
 
-def _floor_state(facts: PropertyFacts) -> bool | None:
-    if facts.floor is None:
-        return None
+def _money_max_rule(name: str, actual: int | None, maximum: int) -> RuleResult:
+    threshold = f"at most {_pln(maximum)}"
+    if actual is None:
+        return RuleResult(
+            name, TriState.UNKNOWN, "unknown", threshold, "distance unknown"
+        )
+    state = TriState.PASS if actual <= maximum else TriState.FAIL
+    difference = maximum - actual
+    distance = (
+        f"under by {_pln(difference)}"
+        if difference >= 0
+        else f"over by {_pln(-difference)}"
+    )
+    return RuleResult(name, state, _pln(actual), threshold, distance)
+
+
+def _decimal_min_rule(
+    name: str, actual: Decimal | None, minimum: Decimal, unit: str
+) -> RuleResult:
+    threshold = f"at least {minimum} {unit}"
+    if actual is None:
+        return RuleResult(
+            name, TriState.UNKNOWN, "unknown", threshold, "distance unknown"
+        )
+    difference = actual - minimum
+    state = TriState.PASS if difference >= 0 else TriState.FAIL
+    direction = "above" if difference >= 0 else "below"
+    return RuleResult(
+        name,
+        state,
+        f"{actual} {unit}",
+        threshold,
+        f"{direction} by {abs(difference)} {unit}",
+    )
+
+
+def _integer_min_rule(
+    name: str, actual: int | None, minimum: int, unit: str
+) -> RuleResult:
+    threshold = f"at least {minimum} {unit}{'' if minimum == 1 else 's'}"
+    if actual is None:
+        return RuleResult(
+            name, TriState.UNKNOWN, "unknown", threshold, "distance unknown"
+        )
+    difference = actual - minimum
+    state = TriState.PASS if difference >= 0 else TriState.FAIL
+    direction = "above" if difference >= 0 else "below"
+    amount = abs(difference)
+    suffix = "" if amount == 1 else "s"
+    return RuleResult(
+        name, state, str(actual), threshold, f"{direction} by {amount} {unit}{suffix}"
+    )
+
+
+def _integer_max_rule(
+    name: str, actual: int | None, maximum: int, unit: str
+) -> RuleResult:
+    threshold = f"at most {maximum} {unit}{'' if maximum == 1 else 's'}"
+    if actual is None:
+        return RuleResult(
+            name, TriState.UNKNOWN, "unknown", threshold, "distance unknown"
+        )
+    difference = maximum - actual
+    state = TriState.PASS if difference >= 0 else TriState.FAIL
+    direction = "under" if difference >= 0 else "over"
+    amount = abs(difference)
+    suffix = "" if amount == 1 else "s"
+    return RuleResult(
+        name, state, str(actual), threshold, f"{direction} by {amount} {unit}{suffix}"
+    )
+
+
+def _floor_rule(facts: PropertyFacts) -> RuleResult:
+    threshold = "below building top floor; ground floor requires private garden"
+    if facts.floor is None or facts.building_top_floor is None:
+        floor = facts.floor if facts.floor is not None else "unknown"
+        actual = f"floor {floor}, top unknown"
+        return RuleResult(
+            "floor", TriState.UNKNOWN, actual, threshold, "distance unknown"
+        )
+    actual = f"floor {facts.floor}, top {facts.building_top_floor}"
+    if facts.floor >= facts.building_top_floor:
+        return RuleResult("floor", TriState.FAIL, actual, threshold, "top floor")
     if facts.floor == 0:
-        return facts.has_private_garden
-    return True
+        if facts.has_private_garden is None:
+            return RuleResult(
+                "floor", TriState.UNKNOWN, actual, threshold, "garden unknown"
+            )
+        if not facts.has_private_garden:
+            return RuleResult(
+                "floor", TriState.FAIL, actual, threshold, "private garden missing"
+            )
+    return RuleResult(
+        "floor",
+        TriState.PASS,
+        actual,
+        threshold,
+        f"{facts.building_top_floor - facts.floor} floor(s) below top",
+    )
 
 
-def _primary_market_evidence(facts: PropertyFacts) -> bool | None:
-    if facts.purchase_type != "primary":
-        return True
-    if facts.primary_market_eligibility is None:
-        return None
-    if facts.primary_market_eligibility is TriState.UNKNOWN:
-        return None
-    return facts.primary_market_eligibility is TriState.PASS
+def _elevator_rule(facts: PropertyFacts) -> RuleResult:
+    threshold = "required above floor 3"
+    if facts.floor is None:
+        return RuleResult(
+            "elevator", TriState.UNKNOWN, "unknown", threshold, "distance unknown"
+        )
+    if facts.floor <= 3:
+        return RuleResult(
+            "elevator", TriState.PASS, f"floor {facts.floor}", threshold, "not required"
+        )
+    return _boolean_rule(
+        "elevator",
+        facts.has_elevator,
+        threshold,
+        actual=(
+            "unknown" if facts.has_elevator is None else str(facts.has_elevator).lower()
+        ),
+    )
+
+
+def _primary_market_evidence(facts: PropertyFacts) -> TriState:
+    if facts.market_type is None:
+        return TriState.UNKNOWN
+    if facts.market_type != MarketType.PRIMARY:
+        return TriState.PASS
+    return facts.primary_market_eligibility or TriState.UNKNOWN
+
+
+def _pln(value_minor: int) -> str:
+    return f"PLN {Decimal(value_minor) / Decimal(100):,.2f}"
 
 
 def _score_components(

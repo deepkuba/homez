@@ -53,13 +53,23 @@ are repository operations and do not discard listing snapshots.
 
 ## Profile and ranking
 
-Slice 4 is implemented as a pure domain layer in `homefinder.domain.profile`,
-`homefinder.domain.costs`, `homefinder.domain.matching`, and
-`homefinder.domain.ranking`. `PropertyFacts` accepts normalized or enriched facts
-without coupling matching to a provider. Missing hard-rule facts remain
-`unknown`; only all-pass results are compliant. `CostEstimate` keeps low/base/high
-renovation outcomes explicit, and `select_slate` never mixes exploration into
-compliant results. Golden cases are in `tests/unit/test_slice4_matching.py`.
+Slice 4 uses `homefinder.domain.profile`, `homefinder.domain.costs`,
+`homefinder.domain.matching`, and `homefinder.domain.ranking`. Transaction type
+(`purchase`/`rental`) is independent from market type
+(`primary`/`secondary`), so a primary-market purchase may pass after its dossier
+passes. Missing hard-rule facts remain `unknown`; only all-pass results are
+compliant. `CostEstimate.effective_all_in_high_minor` includes purchase price,
+mandatory extras, closing costs, high works, and contingency. Acquisition cash
+is calculated separately by subtracting the explicitly financed purchase value.
+Every failed or unknown rule exposes its actual value, threshold, and distance.
+
+Both compliant and exploration selection use locality diversification,
+presentation cooldown, and material-change resurfacing. Buyer profiles are
+stored as immutable versions by `SqlAlchemyBuyerProfileRepository`; a draft is
+not active until a human explicitly records approval. No migration seeds an
+approved profile, preserving issue #27 as the live-ranking activation gate.
+Golden cases are in `tests/unit/test_slice4_matching.py` and
+`tests/unit/test_buyer_profile_repository.py`.
 
 Dependabot groups Python dependency upgrades into one pull request so the
 declaration and `requirements.lock` move together. Before merging dependency

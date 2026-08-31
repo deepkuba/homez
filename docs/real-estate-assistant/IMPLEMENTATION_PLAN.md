@@ -247,11 +247,11 @@ respect cooldown, and fuzzy duplicate suggestions remain reviewable.
 
 ### Slice 4 — Profile, costs, eligibility, and explainable ranking
 
-**Status:** Implemented 31 August 2026 as a pure domain increment. The active
-profile is versioned and immutable; eligibility uses explicit pass/fail/unknown
-states, while conservative cost estimates, weighted components, confidence, and
-exploration reasons are retained in the result. No listing or buyer profile is
-persisted by this slice yet.
+**Status:** Implemented 31 August 2026 and corrected for MVP issue #128. Buyer
+profiles are persisted as immutable versions but cannot become active without a
+recorded human approval. Eligibility uses explicit pass/fail/unknown states,
+while conservative cost estimates, weighted components, confidence, and
+exploration reasons are retained in the result.
 
 **Implemented:** `BuyerProfile` captures the current discovery defaults, including
 the 45-minute commute goal, 40 m² minimum, 48–55 m² preference band, PLN 800,000
@@ -261,6 +261,11 @@ rules without allowing score to override failure; missing facts remain unknown
 and reduce confidence. `select_slate` returns separate, capped compliant and
 exploration results, with deterministic ordering and locality diversification.
 Exploration excludes rentals, known serious legal risk, and non-vacant homes.
+Transaction and market types are separate. The hard price rule uses effective
+all-in high cost, including closing costs, while acquisition cash is evaluated
+separately from the financed purchase value. Building top-floor data, actual
+values, thresholds, and distances make every hard outcome explicit.
+Diversification, cooldown, and material-change rules apply to both slate sections.
 
 The PLN 800,000 cap and unresolved primary-market deadline remain provisional
 until buyer approval. Affordability is an estimate, not mortgage advice; the

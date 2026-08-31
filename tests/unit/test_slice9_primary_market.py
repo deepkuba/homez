@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 
-from homefinder.domain.matching import PropertyFacts, TriState, evaluate
+from homefinder.domain.costs import CostEstimate
+from homefinder.domain.matching import MarketType, PropertyFacts, TriState, evaluate
 from homefinder.enrichment.primary_market import (
     CriticalCheck,
     EntityRole,
@@ -92,7 +93,14 @@ def test_document_ingestion_requires_explicit_permission_and_queue_is_deduplicat
 def test_primary_market_unknown_gate_is_reflected_in_matching() -> None:
     result = evaluate(
         PropertyFacts(
-            "p1", purchase_type="primary", primary_market_eligibility=TriState.UNKNOWN
+            "p1",
+            market_type=MarketType.PRIMARY,
+            primary_market_eligibility=TriState.UNKNOWN,
+            cost=CostEstimate(
+                70_000_000,
+                financed_purchase_value_minor=55_000_000,
+                monthly_installment_minor=350_000,
+            ),
         ),
         __import__(
             "homefinder.domain.profile", fromlist=["BuyerProfile"]
