@@ -17,6 +17,7 @@ from homefinder.domain.models import (
     Listing,
     ListingSnapshot,
     ParsedAlert,
+    ParsedListing,
     Source,
 )
 
@@ -58,7 +59,7 @@ def _alert(
         "Alert",
         uuid4().hex,
     )
-    return ParsedAlert(source, message, listing, snapshot)
+    return ParsedAlert(source, message, (ParsedListing(listing, snapshot),))
 
 
 def test_same_property_from_two_sources_shares_candidate_and_tracks_fuzzy_review() -> (

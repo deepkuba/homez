@@ -36,6 +36,8 @@ class GmailPollingService:
         self._gmail = gmail
         self._ingestion = ingestion
         self._policy = policies.require(source_key)
+        if ingestion.source_key != source_key:
+            raise ValueError("source policy and parser must have the same key")
         self._source_key = source_key
         self._label_id = label_id
         self._processed_label = processed_label
@@ -51,8 +53,8 @@ class GmailPollingService:
                 message = self._gmail.get_message(message_id)
                 ingested = self._ingestion.ingest(message.raw_message)
             except AlertParseError as error:
-                message = self._gmail.get_message(message_id)
-                self._quarantine(message, str(error))
+                reason = f"{self._source_key}@{self._ingestion.parser_version}: {error}"
+                self._quarantine(message, reason)
                 self._gmail.modify_labels(
                     message_id,
                     add=(self._quarantine_label,),
@@ -86,6 +88,7 @@ class GmailPollingService:
             received_at=datetime.now(timezone.utc),
             raw_message=message.raw_message,
             reason=reason,
+            parser_version=self._ingestion.parser_version,
         )
         self._session.add(record)
         self._session.commit()

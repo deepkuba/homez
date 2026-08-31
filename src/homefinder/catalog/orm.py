@@ -135,7 +135,23 @@ class SourceMessageRecord(Base):
     sender: Mapped[str] = mapped_column(String(320))
     subject: Mapped[str] = mapped_column(String(500))
     raw_sha256: Mapped[str] = mapped_column(String(64))
+    parser_version: Mapped[str] = mapped_column(String(100), default="legacy-v1")
     listing_id: Mapped[UUID] = mapped_column(ForeignKey("listings.id"))
+    snapshot_id: Mapped[UUID] = mapped_column(ForeignKey("listing_snapshots.id"))
+    candidate_id: Mapped[UUID] = mapped_column(ForeignKey("property_candidates.id"))
+
+
+class SourceMessageItemRecord(Base):
+    __tablename__ = "source_message_items"
+    __table_args__ = (UniqueConstraint("message_id", "position"),)
+
+    message_id: Mapped[UUID] = mapped_column(
+        ForeignKey("source_messages.id"), primary_key=True
+    )
+    listing_id: Mapped[UUID] = mapped_column(
+        ForeignKey("listings.id"), primary_key=True
+    )
+    position: Mapped[int]
     snapshot_id: Mapped[UUID] = mapped_column(ForeignKey("listing_snapshots.id"))
     candidate_id: Mapped[UUID] = mapped_column(ForeignKey("property_candidates.id"))
 
@@ -148,6 +164,7 @@ class QuarantinedMessageRecord(Base):
     received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     raw_message: Mapped[bytes] = mapped_column(LargeBinary)
     reason: Mapped[str] = mapped_column(String(500))
+    parser_version: Mapped[str] = mapped_column(String(100), default="unknown")
 
 
 class IngestionStateRecord(Base):

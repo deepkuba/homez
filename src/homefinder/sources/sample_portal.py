@@ -15,6 +15,7 @@ from homefinder.domain.models import (
     Listing,
     ListingSnapshot,
     ParsedAlert,
+    ParsedListing,
     Source,
 )
 from homefinder.sources.errors import AlertParseError
@@ -71,6 +72,9 @@ class _ListingHTMLParser(HTMLParser):
 
 class SamplePortalAlertParser:
     """Strict parser for the synthetic, sanitized alert contract used in Slice 1."""
+
+    source_key = SOURCE.key
+    version = "sample-v1"
 
     def parse(self, raw_message: bytes) -> ParsedAlert:
         if not raw_message or len(raw_message) > MAX_MESSAGE_BYTES:
@@ -171,9 +175,9 @@ class SamplePortalAlertParser:
                 sender=sender,
                 subject=_normalize_space(str(parsed.get("Subject", ""))),
                 raw_sha256=hashlib.sha256(raw_message).hexdigest(),
+                parser_version=self.version,
             ),
-            listing=listing,
-            snapshot=snapshot,
+            items=(ParsedListing(listing=listing, snapshot=snapshot),),
         )
 
 

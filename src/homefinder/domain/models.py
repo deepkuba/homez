@@ -20,6 +20,7 @@ class EmailMessage:
     sender: str
     subject: str
     raw_sha256: str
+    parser_version: str = "legacy-v1"
 
 
 @dataclass(frozen=True, slots=True)
@@ -69,8 +70,27 @@ class ResurfaceDecision:
 
 
 @dataclass(frozen=True, slots=True)
+class ParsedListing:
+    listing: Listing
+    snapshot: ListingSnapshot
+
+
+@dataclass(frozen=True, slots=True)
 class ParsedAlert:
     source: Source
     message: EmailMessage
-    listing: Listing
-    snapshot: ListingSnapshot
+    items: tuple[ParsedListing, ...]
+
+    def __post_init__(self) -> None:
+        if not self.items:
+            raise ValueError("an alert must contain at least one listing")
+
+    @property
+    def listing(self) -> Listing:
+        """Compatibility accessor for callers rendering the first listing."""
+        return self.items[0].listing
+
+    @property
+    def snapshot(self) -> ListingSnapshot:
+        """Compatibility accessor for callers rendering the first snapshot."""
+        return self.items[0].snapshot

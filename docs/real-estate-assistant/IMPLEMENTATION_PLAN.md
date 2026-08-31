@@ -182,8 +182,8 @@ container health checks using fake credentials.
 ### Slice 1 — Walking skeleton with sanitized fixtures
 
 **Status:** Completed 30 August 2026 with a synthetic fixture using reserved
-`.invalid` domains. Real portal fixtures remain buyer input for Slice 2 contract
-work.
+`.invalid` domains. Minimal sanitized contract examples now cover Otodom,
+Morizon, and Gratka; the OLX fixture remains blocked on buyer input.
 
 **Coding agent:** implement email-message, listing, snapshot, source, and property-
 candidate models; parse one sanitized alert fixture; normalize it; render a local
@@ -211,8 +211,10 @@ Gmail REST API; `EncryptedTokenStore` stores OAuth token JSON using AES-GCM; and
 message ID, applies processed/quarantine labels, preserves malformed raw mail,
 records per-source health, and leaves transient failures available for retry.
 The `poll-gmail` CLI currently registers only the synthetic sample source, whose
-page-fetch policy is disabled. Additional portal parsers and policies must be
-added only after their alert fixtures and access methods are approved.
+page-fetch policy is disabled. Strict `sanitized-email-v1` contracts cover the
+approved Otodom, Morizon, and Gratka examples without registering them in the
+production CLI. OLX remains blocked on #17/#18, and page retrieval still requires
+separate approval.
 
 **Buyer required:** create dedicated Gmail and portal accounts, enable 2FA, create
 saved searches, complete one-time OAuth consent, and approve each source's access

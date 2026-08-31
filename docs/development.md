@@ -96,6 +96,11 @@ leaves transient failures labeled for retry. Page fetching is disabled by the
 default source policy. Real portal policies must not be enabled until their
 access method and terms have been reviewed and approved.
 
+Sanitized parser contracts for Otodom, Morizon, and Gratka are documented in
+[`portal-contracts.md`](real-estate-assistant/portal-contracts.md). OLX remains
+explicitly blocked on human fixture issues #17 and #18. These contracts do not
+enable a production source or page fetching.
+
 ## Migrations
 
 For a local SQLite smoke test:
