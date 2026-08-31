@@ -1,6 +1,6 @@
 # Implementation Plan
 
-- Status: In progress; Slices 0-8 implemented with synthetic fixtures
+- Status: In progress; Slices 0-9 implemented with synthetic fixtures
 - Date: 2026-08-31
 - Delivery mode: incremental implementation; no production integration is enabled
 
@@ -386,6 +386,10 @@ inspection documents without importing their contents. Migration
 
 ### Slice 9 — Primary-market risk dossier
 
+**Status:** Implemented 31 August 2026 as a provider-independent, evidence-first
+dossier workflow. Official-register adapters, protected document storage, and
+legal/financial review remain buyer/professional prerequisites.
+
 **Coding agent:** developer/project/entity/evidence model, KRS/permit/DFG/prospectus
 checklists, dated risk dimensions, document ingestion where permitted, manual task
 queue, and digest rendering.
@@ -395,6 +399,17 @@ prospectus and contract; commission legal/financial review before commitment.
 
 **Exit:** the system distinguishes SPV/parent/contractor, never claims guaranteed
 completion, and blocks normal ranking when critical evidence is insufficient.
+
+**Implemented:** `PrimaryMarketDossier` keeps the contracting SPV, parent group,
+contractor, and project identities separate. `Evidence` and risk assessments
+retain source, reference, permission, facts, and observation dates. Critical
+checks produce pass/fail/unknown gating; serious legal risk fails normal
+eligibility, while incomplete evidence is unknown and requires manual review.
+`ManualTaskQueue` deduplicates verification requests, and digest items can
+display dossier concern and missing checks. Migration `20260831_09` persists
+projects, entities, evidence, risk dimensions, and manual tasks. Document
+ingestion accepts metadata only after an explicit permission check and never
+bypasses CAPTCHA or protected access controls.
 
 ### Slice 10 — Production hardening and pilot
 
@@ -511,7 +526,8 @@ separate from code completion.
 
 ## 11. Recommended next action
 
-Slice 7 is ready for buyer validation against known Krakow examples, especially
+Slice 9 is ready for buyer/legal review of the dossier checklist and evidence
+freshness policy. Slice 7 is ready for buyer validation against known Krakow examples, especially
 noise, entrance size, and surroundings. Slice 6 is ready for buyer review of HTML/plain-text and mobile feedback previews,
 recipient selection, and delivery-domain/DNS decisions. The first usable release
 can proceed as a shadow report after production persistence, mail transport,

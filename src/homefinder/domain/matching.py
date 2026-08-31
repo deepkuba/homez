@@ -22,6 +22,7 @@ class PropertyFacts:
     area_sqm: Decimal | None = None
     rooms: int | None = None
     purchase_type: str | None = "purchase"
+    primary_market_eligibility: TriState | None = None
     vacant_possession: bool | None = None
     separate_ownership: bool | None = None
     serious_legal_risk: bool | None = None
@@ -77,6 +78,11 @@ def evaluate(facts: PropertyFacts, profile: BuyerProfile) -> MatchExplanation:
             if facts.purchase_type is not None
             else None,
             "purchase only",
+        ),
+        _rule(
+            "primary_market_evidence",
+            _primary_market_evidence(facts),
+            "critical primary-market evidence is sufficient",
         ),
         _rule("vacant_possession", facts.vacant_possession, "delivered vacant"),
         _rule(
@@ -186,6 +192,16 @@ def _floor_state(facts: PropertyFacts) -> bool | None:
     if facts.floor == 0:
         return facts.has_private_garden
     return True
+
+
+def _primary_market_evidence(facts: PropertyFacts) -> bool | None:
+    if facts.purchase_type != "primary":
+        return True
+    if facts.primary_market_eligibility is None:
+        return None
+    if facts.primary_market_eligibility is TriState.UNKNOWN:
+        return None
+    return facts.primary_market_eligibility is TriState.PASS
 
 
 def _score_components(

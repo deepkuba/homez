@@ -1,6 +1,6 @@
 # ADR 0014: Include primary-market projects with evidence-based risk assessment
 
-- Status: Proposed
+- Status: Implemented in code; operational/legal approval pending
 - Date: 2026-08-30
 
 ## Context

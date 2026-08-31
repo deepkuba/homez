@@ -132,3 +132,22 @@ the high estimate plus contingency, and returns `PASS`, `FAIL`, or `UNKNOWN`.
 `AttachmentMetadata` for quote/inspection metadata only. Persistence is
 prepared by migration `20260831_08`; uploaded files need protected external
 storage and authorization before production use.
+
+## Primary-market risk dossier
+
+Slice 9 provides `homefinder.enrichment.primary_market`. Build a
+`PrimaryMarketDossier` with separate `ProjectEntity` records for the contracting
+SPV, parent group, contractor, and project. Attach only permitted `Evidence`
+references and dated `RiskAssessment` facts; the model stores metadata and
+references rather than silently downloading protected documents.
+`normal_eligibility` is `UNKNOWN` when critical checks are missing and `FAIL`
+for serious legal risk or other higher-concern dimensions. Use `ManualTaskQueue`
+for CAPTCHA-protected or otherwise non-public verification.
+
+For primary listings, pass the dossier's `normal_eligibility` into
+`PropertyFacts.primary_market_eligibility`; matching then prevents an incomplete
+dossier from entering the compliant slate. A `DigestItem` may carry the dossier
+to show concern and missing critical checks. Migration `20260831_09` is the
+persistence boundary; production needs authorized register access, protected
+document storage, authentication for task review, and independent legal/
+financial review.

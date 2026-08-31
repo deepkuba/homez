@@ -5,12 +5,14 @@ from datetime import datetime
 from html import escape
 
 from homefinder.domain.ranking import RankedCandidate
+from homefinder.enrichment.primary_market import PrimaryMarketDossier
 
 
 @dataclass(frozen=True, slots=True)
 class DigestItem:
     candidate: RankedCandidate
     listing_url: str
+    primary_market: PrimaryMarketDossier | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -44,15 +46,22 @@ def render_digest(
                 if feedback
                 else ""
             )
+            risk = ""
+            risk_plain = ""
+            if item.primary_market is not None:
+                dossier = item.primary_market
+                risk = f"<p>Primary-market risk: {escape(dossier.summary)}</p>"
+                risk_plain = f" — primary-market risk: {dossier.summary}"
             location = escape(facts.locality or "Location unknown")
             cards.append(
                 f"<article><h3>{title}</h3><p>{location} · score "
                 f'{explanation.score}</p><a href="{url}" '
-                f'rel="noreferrer noopener">open listing</a>{feedback_link}</article>'
+                f'rel="noreferrer noopener">open listing</a>{feedback_link}'
+                f"{risk}</article>"
             )
             lines.append(
                 f"- {facts.title or facts.id} — {facts.locality or 'Location unknown'} "
-                f"— {item.listing_url}"
+                f"— {item.listing_url}{risk_plain}"
             )
         sections.append(
             f"<section><h2>{heading}</h2>{''.join(cards) or '<p>None</p>'}</section>"
