@@ -72,6 +72,7 @@ architecture.
 - [Weekly ranking and slate selection](adr/0007-weekly-ranking-and-selection.md)
 - [Managed mailbox decision](adr/0008-managed-mailbox.md)
 - [VPS runtime and NAS backup](adr/0009-hosting-topology.md)
+- [Operations runbook](../operations.md)
 - [Python and PostgreSQL application stack](adr/0010-application-stack.md)
 - [Routes API quota and failure behavior](adr/0011-routing-quota-guard.md)
 - [Implementation plan and slice status](IMPLEMENTATION_PLAN.md)

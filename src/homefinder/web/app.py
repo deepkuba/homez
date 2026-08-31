@@ -6,6 +6,8 @@ from pydantic import BaseModel
 from homefinder.config import Settings
 from homefinder.digest.feedback import FeedbackError
 from homefinder.enrichment.environment import ManualCorrectionStore
+from homefinder.operations.health import HealthRegistry, HealthState
+from homefinder.operations.logging import setup_logging
 
 
 class FeedbackPayload(BaseModel):
@@ -23,12 +25,27 @@ class CorrectionPayload(BaseModel):
 def create_app(settings: Settings | None = None) -> FastAPI:
     application = FastAPI(title="Homefinder", docs_url=None, redoc_url=None)
     application.state.settings = settings or Settings()
+    setup_logging(application.state.settings.log_level)
     application.state.feedback_service = None
     application.state.correction_store = ManualCorrectionStore()
+    application.state.health_registry = HealthRegistry()
+    application.state.health_registry.update("application", HealthState.OK)
 
     @application.get("/health", include_in_schema=False)
-    def health() -> dict[str, str]:
-        return {"status": "ok"}
+    def health() -> dict[str, object]:
+        snapshot = application.state.health_registry.snapshot()
+        return {
+            "status": snapshot.status,
+            "components": {
+                name: {
+                    "state": component.state.value,
+                    "checked_at": component.checked_at.isoformat(),
+                    "detail": component.detail,
+                }
+                for name, component in snapshot.components.items()
+            },
+            "oldest_pending_job": snapshot.oldest_pending_job,
+        }
 
     @application.post("/feedback/{report_id}/{listing_id}")
     def feedback(

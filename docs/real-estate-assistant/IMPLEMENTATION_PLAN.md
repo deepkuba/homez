@@ -1,6 +1,6 @@
 # Implementation Plan
 
-- Status: In progress; Slices 0-9 implemented with synthetic fixtures
+- Status: In progress; Slices 0-10 implemented with synthetic fixtures; live pilot remains gated
 - Date: 2026-08-31
 - Delivery mode: incremental implementation; no production integration is enabled
 
@@ -413,6 +413,19 @@ bypasses CAPTCHA or protected access controls.
 
 ### Slice 10 — Production hardening and pilot
 
+**Status:** Implemented 31 August 2026 as a deployment-safe hardening
+increment. Production credentials, VPS/NAS access, and live delivery remain
+disabled.
+
+**Implemented:** `homefinder.operations` provides newline-delimited JSON logging
+with conservative secret redaction; a component/job health registry exposed by
+`GET /health`; atomic mode-0600 AES-GCM backup files; argument-list-only
+`pg_dump`/`pg_restore` commands; and an encrypted-backup retention helper. The
+CLI exposes `backup`, `restore`, and `prune-backups`. Existing container
+isolation, immutable image tags, dependency auditing, and migration checks remain
+part of the delivery baseline. The operational runbook documents NAS copying,
+restore evidence, and deployment gates.
+
 **Coding agent:** restricted containers, database isolation, retention jobs,
 structured redacted logs, monitoring, encrypted NAS backup, restore automation,
 dependency/security scanning, runbooks, and failure drills.
@@ -423,6 +436,10 @@ and approve live Friday delivery.
 
 **Exit:** four-week pilot completes with weekly review of misses, false positives,
 duplicates, source failures, quota usage, and proposed soft-weight adjustments.
+
+**Remaining human exit evidence:** authorize VPS/NAS changes and secret entry,
+run the clean-database restore drill, test failure notification delivery, and
+complete the four-week shadow/pilot review before enabling live Friday delivery.
 
 ## 7. Attention and ownership matrix
 
@@ -526,8 +543,9 @@ separate from code completion.
 
 ## 11. Recommended next action
 
-Slice 9 is ready for buyer/legal review of the dossier checklist and evidence
-freshness policy. Slice 7 is ready for buyer validation against known Krakow examples, especially
+Slice 10 is ready for buyer review of the operations runbook and a witnessed
+clean-database restore. Slice 9 is ready for buyer/legal review of the dossier
+checklist and evidence freshness policy. Slice 7 is ready for buyer validation against known Krakow examples, especially
 noise, entrance size, and surroundings. Slice 6 is ready for buyer review of HTML/plain-text and mobile feedback previews,
 recipient selection, and delivery-domain/DNS decisions. The first usable release
 can proceed as a shadow report after production persistence, mail transport,

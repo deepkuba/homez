@@ -80,6 +80,14 @@ DATABASE_URL=sqlite:///migration-check.sqlite3 .venv/bin/alembic upgrade head
 
 Production uses PostgreSQL/PostGIS through `infra/compose.yaml`.
 
+## Production hardening
+
+Slice 10 provides `homefinder.operations` for redacted JSON logs, component/job
+health snapshots, and AES-GCM encrypted PostgreSQL dump/restore plus retention
+commands. These are tested deployment contracts; they do not enter credentials,
+copy files to a NAS, or authorize production changes. Follow
+[`docs/operations.md`](operations.md) for the restore drill and deployment gates.
+
 ## Runtime configuration
 
 Configuration is validated at application startup:

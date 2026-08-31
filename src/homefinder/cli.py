@@ -1,4 +1,5 @@
 import argparse
+import base64
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -9,6 +10,11 @@ from homefinder.application.ingest_alert import AlertIngestionService
 from homefinder.application.poll_gmail import GmailPollingService
 from homefinder.catalog.orm import Base
 from homefinder.catalog.repository import SqlAlchemyCatalogRepository
+from homefinder.operations.backup import (
+    backup_database,
+    prune_backups,
+    restore_database,
+)
 from homefinder.sources.gmail import EncryptedTokenStore, GmailApiClient
 from homefinder.sources.policy import SourcePolicy, SourcePolicyRegistry
 from homefinder.sources.sample_portal import SamplePortalAlertParser
@@ -29,16 +35,52 @@ def _parser() -> argparse.ArgumentParser:
     poll.add_argument("--token-file", type=Path, required=True)
     poll.add_argument("--encryption-key", required=True, help="base64 encoded AES key")
     poll.add_argument("--label", default="INBOX")
+    backup = commands.add_parser("backup", help="create an encrypted PostgreSQL backup")
+    backup.add_argument("destination", type=Path)
+    backup.add_argument("--database-url", required=True)
+    backup.add_argument(
+        "--encryption-key", required=True, help="base64 encoded AES key"
+    )
+    restore = commands.add_parser(
+        "restore", help="restore an encrypted PostgreSQL backup"
+    )
+    restore.add_argument("backup", type=Path)
+    restore.add_argument("--database-url", required=True)
+    restore.add_argument(
+        "--encryption-key", required=True, help="base64 encoded AES key"
+    )
+    prune = commands.add_parser(
+        "prune-backups", help="remove expired encrypted backups"
+    )
+    prune.add_argument("directory", type=Path)
+    prune.add_argument("--keep-days", type=int, default=14)
     return parser
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
+    if args.command == "backup":
+        backup_database(
+            None,
+            args.destination,
+            base64.urlsafe_b64decode(args.encryption_key),
+            database_url=args.database_url,
+        )
+        return 0
+    if args.command == "restore":
+        restore_database(
+            args.backup,
+            base64.urlsafe_b64decode(args.encryption_key),
+            database_url=args.database_url,
+        )
+        return 0
+    if args.command == "prune-backups":
+        for path in prune_backups(args.directory, keep_days=args.keep_days):
+            print(path)
+        return 0
     engine = create_engine(args.database_url)
     Base.metadata.create_all(engine)
     if args.command == "poll-gmail":
-        import base64
-
         token = EncryptedTokenStore(base64.urlsafe_b64decode(args.encryption_key)).load(
             args.token_file
         )

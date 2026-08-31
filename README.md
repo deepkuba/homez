@@ -4,7 +4,8 @@ Private, explainable home-finding assistant. Implemented slices cover sanitized
 alert ingestion, catalog history and deduplication, governed Gmail polling,
 fixture-backed profile/ranking, routing, digest/feedback, environmental/building
 enrichment, conservative renovation/comparable assessment, and primary-market
-developer/project risk dossiers.
+developer/project risk dossiers, plus production-hardening contracts for health,
+redacted logs, and encrypted backups.
 Live Gmail OAuth, real portal contracts, mail transport, and buyer approval of
 provisional profile values remain outstanding.
 

@@ -33,3 +33,8 @@ bad rollout immediate and obscures exactly which commit is running. For this
 private service, an explicit update to an immutable commit tag is simpler to
 audit and roll back. Slice 10 can automate this controlled sequence after VPS
 access, backup/restore, health gating, and failure notifications are approved.
+
+The Slice 10 operational commands and restore-drill record are documented in
+[the operations runbook](operations.md). Backups must be encrypted before they
+leave the VPS, with the decryption key stored separately from both VPS and NAS
+backup files.
