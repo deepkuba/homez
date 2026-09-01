@@ -1,5 +1,6 @@
 import os
 from pathlib import Path
+from uuid import uuid4
 
 import pytest
 from alembic import command
@@ -34,6 +35,7 @@ def test_approved_portals_ingest_idempotently_in_postgresql(
     config = Config("alembic.ini")
     command.upgrade(config, "head")
     engine = create_engine(POSTGRES_URL)
+    unique = uuid4().hex
     try:
         with Session(engine) as session:
             for source_key, parser in (
@@ -45,7 +47,18 @@ def test_approved_portals_ingest_idempotently_in_postgresql(
                     parser=parser,
                     catalog=SqlAlchemyCatalogRepository(session),
                 )
-                raw = (FIXTURES / f"{source_key}_alert.eml").read_bytes()
+                raw = (
+                    (FIXTURES / f"{source_key}_alert.eml")
+                    .read_bytes()
+                    .replace(
+                        f"{source_key}-alert-001".encode(),
+                        f"{source_key}-alert-{unique}".encode(),
+                    )
+                    .replace(
+                        f"{source_key}-example-001".encode(),
+                        f"{source_key}-example-{unique}".encode(),
+                    )
+                )
                 assert service.ingest(raw).created is True
                 assert service.ingest(raw).created is False
 

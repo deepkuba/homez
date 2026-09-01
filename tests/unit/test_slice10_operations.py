@@ -1,5 +1,6 @@
 import base64
 import json
+import logging
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -11,7 +12,7 @@ from homefinder.operations.backup import (
     restore_database,
 )
 from homefinder.operations.health import HealthRegistry, HealthState
-from homefinder.operations.logging import redact, setup_logging
+from homefinder.operations.logging import JsonFormatter, redact
 
 
 def test_redaction_removes_secrets_from_structured_payload() -> None:
@@ -28,15 +29,22 @@ def test_redaction_removes_secrets_from_structured_payload() -> None:
     assert result["nested"] == ["[REDACTED]", "safe"]
 
 
-def test_json_logging_is_structured_and_redacted(capsys) -> None:  # type: ignore[no-untyped-def]
-    logger = setup_logging("INFO", force=True)
-    logger.info("backup completed", extra={"database_url": "postgresql://u:p@db/x"})
-
-    record = capsys.readouterr().err
-    payload = json.loads(record)
+def test_json_logging_is_structured_and_redacted() -> None:
+    record = logging.LogRecord(
+        "homefinder",
+        logging.INFO,
+        __file__,
+        1,
+        "backup completed",
+        (),
+        None,
+    )
+    record.database_url = "postgresql://u:p@db/x"
+    encoded = JsonFormatter().format(record)
+    payload = json.loads(encoded)
     assert payload["message"] == "backup completed"
     assert payload["database_url"] == "[REDACTED]"
-    assert "postgresql://u:p" not in record
+    assert "postgresql://u:p" not in encoded
 
 
 def test_health_registry_reports_degraded_component_and_oldest_job() -> None:

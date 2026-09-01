@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from threading import Barrier, Thread
+from urllib.parse import quote
 
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, select
@@ -198,3 +199,34 @@ def test_private_link_keeps_token_in_fragment() -> None:
     assert "?" not in url
     assert url.endswith("#private-token")
     assert "/report%201/listing%2F1" in url
+
+
+def test_feedback_form_escapes_path_and_post_rejects_csrf(tmp_path: Path) -> None:
+    sessions = _sessions(tmp_path)
+    service = SqlAlchemyFeedbackService(sessions)
+    report_id = "<img src=x onerror=alert(1)>"
+    token = service.issue(
+        report_id,
+        "listing-1",
+        now=datetime.now(timezone.utc),
+        ttl=timedelta(days=7),
+    )
+    settings = Settings(
+        environment="test",
+        database_url=f"sqlite+pysqlite:///{tmp_path / 'feedback.sqlite'}",
+        _env_file=None,
+    )
+    client = TestClient(
+        create_app(settings, feedback_service=service), base_url="https://testserver"
+    )
+
+    path = f"/feedback/{quote(report_id, safe='')}/listing-1"
+    form = client.get(path)
+    assert form.status_code == 200
+    assert report_id not in form.text
+    assert "&lt;img src=x onerror=alert(1)&gt;" in form.text
+    rejected = client.post(
+        path,
+        data={"token": token, "csrf_token": "wrong", "value": "like"},
+    )
+    assert rejected.status_code == 400

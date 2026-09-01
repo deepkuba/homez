@@ -2,6 +2,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from uuid import uuid4
 
+import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -223,3 +224,27 @@ def test_http_transport_requires_approved_https_host_and_returns_ack(
     assert acknowledgement.provider_message_id == "provider-123"
     assert requests[0][0].headers["Idempotency-key"] == "stable-report-key"
     assert requests[0][1] == 10.0
+
+
+@pytest.mark.parametrize(
+    "endpoint",
+    (
+        "http://mail.example.invalid/v1/send",
+        "https://mail.example.invalid.attacker.example/v1/send",
+        "https://user:password@mail.example.invalid/v1/send",
+    ),
+)
+def test_http_transport_rejects_ssrf_host_confusion(
+    tmp_path: Path, endpoint: str
+) -> None:
+    token = tmp_path / "mail-token"
+    token.write_text("provider-secret", encoding="utf-8")
+    token.chmod(0o600)
+
+    with pytest.raises(ValueError, match="approved HTTPS host"):
+        HttpMailTransport(
+            endpoint=endpoint,
+            allowed_host="mail.example.invalid",
+            token_file=token,
+            sender="homefinder@example.invalid",
+        )

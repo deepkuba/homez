@@ -15,6 +15,46 @@ concurrency:
 jobs:
   quality:
     runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        # v7.0.0
+        with:
+          python-version: "3.10"
+          cache: pip
+      - run: >-
+          python -m pip install --disable-pip-version-check
+          --constraint requirements.lock -e '.[dev]'
+      - run: ruff format --check .
+      - run: ruff check .
+      - run: mypy src
+      - name: Reject unsafe email fixtures
+        run: >-
+          python -m homefinder.fixture_safety
+          data/email_examples tests/fixtures
+      - run: >-
+          pytest -m 'not postgres'
+          --junitxml=.release-evidence/unit.xml
+      - run: >-
+          python -m homefinder.operations.release_gate
+          .release-evidence/unit.xml --minimum-tests 100
+      - run: >-
+          pip-audit --requirement requirements.lock --no-deps --disable-pip
+      - run: >-
+          yamllint -d relaxed
+          .github/workflows .github/dependabot.yml infra/compose.yaml
+      - name: Upload unit evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        # v4.6.2
+        with:
+          name: unit-test-evidence
+          path: .release-evidence/unit.xml
+          if-no-files-found: warn
+
+  postgres-integration:
+    runs-on: ubuntu-latest
     services:
       postgres:
         image: postgis/postgis:17-3.5-alpine
@@ -34,6 +74,7 @@ jobs:
         postgresql+psycopg://homefinder:fake-ci-password@localhost:5432/homefinder_test
       TEST_POSTGRES_URL: >-
         postgresql+psycopg://homefinder:fake-ci-password@localhost:5432/homefinder_test
+      REQUIRE_POSTGRES_TESTS: "1"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         # v7.0.1
@@ -45,21 +86,25 @@ jobs:
       - run: >-
           python -m pip install --disable-pip-version-check
           --constraint requirements.lock -e '.[dev]'
-      - run: ruff format --check .
-      - run: ruff check .
-      - run: mypy src
-      - name: Reject unsafe email fixtures
-        run: >-
-          python -m homefinder.fixture_safety
-          data/email_examples tests/fixtures
-      - run: pytest
       - run: >-
-          pip-audit --requirement requirements.lock --no-deps --disable-pip
-      - run: yamllint -d relaxed .github/workflows .github/dependabot.yml
+          pytest -m postgres
+          --junitxml=.release-evidence/postgres.xml
+      - run: >-
+          python -m homefinder.operations.release_gate
+          .release-evidence/postgres.xml --minimum-tests 7
       - run: alembic upgrade head
       - run: alembic check
+      - name: Upload PostgreSQL evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        # v4.6.2
+        with:
+          name: postgres-test-evidence
+          path: .release-evidence/postgres.xml
+          if-no-files-found: warn
 
   container:
+    needs: [quality, postgres-integration]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -79,8 +124,40 @@ jobs:
         run: |
           export HOMEZ_IMAGE=homefinder
           export HOMEZ_IMAGE_TAG=test
-          export HOMEFINDER_ENVIRONMENT=production
-          export POSTGRES_PASSWORD=fake-compose-password
+          export HOMEZ_DOMAIN=localhost
+          export HOMEZ_ACME_EMAIL=owner@example.com
+          export HOMEFINDER_MAIL_API_ENDPOINT=https://mail.example.com/send
+          export HOMEFINDER_MAIL_API_HOST=mail.example.com
+          export HOMEFINDER_MAIL_SENDER=sender@example.com
+          export HOMEZ_SECRETS_DIR="$RUNNER_TEMP/homez-secrets"
+          export HOMEZ_CONFIG_DIR="$RUNNER_TEMP/homez-config"
+          export HOMEZ_STATE_DIR="$RUNNER_TEMP/homez-state"
+          install -d -m 0700 "$HOMEZ_SECRETS_DIR" "$HOMEZ_CONFIG_DIR"
+          install -d -m 0700 "$HOMEZ_STATE_DIR"
+          printf '%s' 'fake-compose-password' > \
+            "$HOMEZ_SECRETS_DIR/postgres-password"
+          database_url='postgresql+psycopg://homefinder:'
+          database_url="${database_url}fake-compose-password@db/homefinder"
+          printf '%s' "$database_url" > "$HOMEZ_SECRETS_DIR/database-url"
+          printf '%s' 'ZmFrZS1rZXktZmFrZS1rZXktZmFrZS0=' > \
+            "$HOMEZ_SECRETS_DIR/gmail-token-key"
+          printf '%s' 'buyer@example.invalid' > \
+            "$HOMEZ_SECRETS_DIR/report-recipient"
+          printf '%s' 'fake-mail-token' > \
+            "$HOMEZ_SECRETS_DIR/mail-api-token"
+          printf '%s' 'fake-feedback-key' > \
+            "$HOMEZ_SECRETS_DIR/feedback-token-key"
+          printf '%s' 'fake-rate-salt' > \
+            "$HOMEZ_SECRETS_DIR/feedback-rate-salt"
+          printf '%s' 'fake-admin-token' > \
+            "$HOMEZ_SECRETS_DIR/admin-bearer-token"
+          printf '%s' 'ZmFrZS1iYWNrdXAta2V5LWZvci1jaQ==' > \
+            "$HOMEZ_SECRETS_DIR/backup-key"
+          chmod 0600 "$HOMEZ_SECRETS_DIR"/*
+          printf '%s' '{"sources":{}}' > \
+            "$HOMEZ_CONFIG_DIR/source-policy.json"
+          install -o 10001 -g 10001 -m 0600 /dev/null \
+            "$HOMEZ_STATE_DIR/gmail-token.json"
           compose() {
             docker compose --project-name homez-ci -f infra/compose.yaml "$@"
           }
@@ -88,13 +165,30 @@ jobs:
             compose down --volumes --remove-orphans
           }
           trap cleanup EXIT
+          compose config > "$RUNNER_TEMP/homez-compose.rendered"
+          ! grep -F 'fake-compose-password' \
+            "$RUNNER_TEMP/homez-compose.rendered"
+          ! grep -F 'fake-mail-token' "$RUNNER_TEMP/homez-compose.rendered"
           compose up --detach db
-          compose run --rm app alembic upgrade head
-          compose up --detach --wait
+          compose run --rm migrate
+          compose up --detach --wait ingress
           compose exec -T db psql --username homefinder \
             --dbname homefinder --command 'SELECT PostGIS_Version();'
           catalog_table=$(compose exec -T db psql --username homefinder \
             --dbname homefinder --tuples-only --no-align \
             --command "SELECT to_regclass('public.source_messages');")
           test "$catalog_table" = source_messages
+          compose run --rm migrate pg_dump --version
+          compose run --rm scheduler homefinder runtime-scheduler \
+            --heartbeat-file /tmp/scheduler-heartbeat --once
+          workflow_jobs=$(compose exec -T db psql --username homefinder \
+            --dbname homefinder --tuples-only --no-align \
+            --command 'SELECT count(*) FROM workflow_jobs;')
+          test "$workflow_jobs" -ge 4
+          curl --insecure --fail --silent \
+            https://localhost/feedback/example-report/example-listing \
+            > /dev/null
+          private_status=$(curl --insecure --silent --output /dev/null \
+            --write-out '%{http_code}' https://localhost/health)
+          test "$private_status" = 404
           compose ps

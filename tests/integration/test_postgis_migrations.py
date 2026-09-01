@@ -15,6 +15,7 @@ def test_migrations_create_catalog_in_postgis(monkeypatch: pytest.MonkeyPatch) -
     monkeypatch.setenv("DATABASE_URL", POSTGRES_URL)
     config = Config("alembic.ini")
 
+    command.downgrade(config, "base")
     command.upgrade(config, "head")
     try:
         engine = create_engine(POSTGRES_URL)

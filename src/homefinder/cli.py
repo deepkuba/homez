@@ -112,17 +112,20 @@ def _parser() -> argparse.ArgumentParser:
     runtime_workflow.add_argument("--interval-seconds", type=float, default=5)
     runtime_workflow.add_argument("--max-jobs", type=int, default=100)
     runtime_workflow.add_argument("--heartbeat-file", required=True, type=Path)
+    runtime_workflow.add_argument("--once", action="store_true")
     runtime_scheduler = commands.add_parser(
         "runtime-scheduler", help="enqueue idempotent periodic workflow work"
     )
     runtime_scheduler.add_argument("--interval-seconds", type=float, default=60)
     runtime_scheduler.add_argument("--heartbeat-file", required=True, type=Path)
+    runtime_scheduler.add_argument("--once", action="store_true")
     runtime_delivery = commands.add_parser(
         "runtime-delivery", help="run the persistent delivery worker"
     )
     runtime_delivery.add_argument("--interval-seconds", type=float, default=5)
     runtime_delivery.add_argument("--max-deliveries", type=int, default=10)
     runtime_delivery.add_argument("--heartbeat-file", required=True, type=Path)
+    runtime_delivery.add_argument("--once", action="store_true")
     runtime_health = commands.add_parser(
         "runtime-health", help="check a container runtime heartbeat"
     )
@@ -496,6 +499,7 @@ def _run_container_runtime(settings: Settings, args: argparse.Namespace) -> None
         interval_seconds=args.interval_seconds,
         heartbeat_file=args.heartbeat_file,
         stop=stop,
+        max_iterations=1 if args.once else None,
     )
 
 
