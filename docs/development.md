@@ -79,22 +79,34 @@ image rather than validating an obsolete base revision.
 
 ## Gmail polling
 
-Slice 2 provides a governed polling command. It expects an OAuth token envelope
-encrypted by `EncryptedTokenStore`; the encryption key is supplied separately as
-base64 and must never be committed:
+Gmail polling uses the single least-privilege `gmail.modify` scope. Complete the
+one-time consent flow with offline access, then store the resulting token envelope
+with `EncryptedTokenStore`. The encrypted token, its base64 AES key, and the
+reviewed source policy are mounted as private (`0600`) regular files. Secret
+values are never accepted as command-line arguments:
 
 ```bash
-.venv/bin/homefinder poll-gmail \
-  --token-file /run/secrets/homefinder-gmail-token.json \
-  --encryption-key "$HOMEFINDER_GMAIL_TOKEN_KEY"
+HOMEFINDER_ENVIRONMENT=production \
+HOMEFINDER_DATABASE_URL='postgresql+psycopg://...' \
+HOMEFINDER_GMAIL_TOKEN_FILE=/run/secrets/homefinder_gmail_token \
+HOMEFINDER_GMAIL_TOKEN_KEY_FILE=/run/secrets/homefinder_gmail_token_key \
+HOMEFINDER_GMAIL_SOURCE_POLICY_FILE=/run/secrets/homefinder_source_policy \
+.venv/bin/homefinder poll-gmail --source otodom
 ```
 
-The current CLI registers only the sanitized `sample_portal` policy. It polls
-the selected Gmail label, marks successfully handled messages with
-`HOMEZ_PROCESSED`, quarantines malformed messages with `HOMEZ_QUARANTINE`, and
-leaves transient failures labeled for retry. Page fetching is disabled by the
-default source policy. Real portal policies must not be enabled until their
-access method and terms have been reviewed and approved.
+The policy file contains a `sources` object keyed by portal, with `enabled`, one
+reviewed `allowed_senders` address, one `allowed_hosts` listing host, and an
+optional `max_message_bytes`. The command resolves/creates mailbox-scoped alert,
+processed, quarantine, and retry labels and persists Gmail's actual label IDs.
+Expired access tokens refresh automatically without logging credentials. Only
+messages on the resolved alert label and matching the sender/size/source contract
+are parsed or modified. Page fetching remains disabled.
+
+The human tasks #29–#32 remain mandatory: grant only `gmail.modify`, place the
+encrypted token and separate key through the secret mechanism, and perform one
+reviewed sandbox poll confirming unrelated mail is untouched. Revoke the OAuth
+grant and recreate the encrypted token if either credential file may have been
+exposed.
 
 Sanitized parser contracts for Otodom, Morizon, and Gratka are documented in
 [`portal-contracts.md`](real-estate-assistant/portal-contracts.md). OLX remains

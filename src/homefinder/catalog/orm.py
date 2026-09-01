@@ -174,7 +174,31 @@ class IngestionStateRecord(Base):
     last_success_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    last_poll_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    last_error_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    last_quarantine_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     last_error: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    status: Mapped[str] = mapped_column(String(20), default="unknown")
+    consecutive_failures: Mapped[int] = mapped_column(default=0)
+    quarantine_count: Mapped[int] = mapped_column(default=0)
+
+
+class GmailLabelBindingRecord(Base):
+    __tablename__ = "gmail_label_bindings"
+    __table_args__ = (UniqueConstraint("mailbox_key", "source_key", "label_name"),)
+
+    mailbox_key: Mapped[str] = mapped_column(String(100), primary_key=True)
+    source_key: Mapped[str] = mapped_column(String(100), primary_key=True)
+    role: Mapped[str] = mapped_column(String(20), primary_key=True)
+    label_name: Mapped[str] = mapped_column(String(225))
+    label_id: Mapped[str] = mapped_column(String(100))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
 class RoutingQuotaLedgerRecord(Base):

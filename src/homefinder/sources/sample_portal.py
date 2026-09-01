@@ -75,6 +75,9 @@ class SamplePortalAlertParser:
 
     source_key = SOURCE.key
     version = "sample-v1"
+    expected_sender = EXPECTED_SENDER
+    expected_host = EXPECTED_HOST
+    max_message_bytes = MAX_MESSAGE_BYTES
 
     def parse(self, raw_message: bytes) -> ParsedAlert:
         if not raw_message or len(raw_message) > MAX_MESSAGE_BYTES:

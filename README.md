@@ -6,7 +6,7 @@ fixture-backed profile/ranking, routing, digest/feedback, environmental/building
 enrichment, conservative renovation/comparable assessment, and primary-market
 developer/project risk dossiers, plus production-hardening contracts for health,
 redacted logs, and encrypted backups.
-Live Gmail OAuth, the OLX alert contract, production sender configuration, mail
+Live Gmail consent/sandbox verification, the OLX alert contract, production sender configuration, mail
 transport, and buyer approval of provisional profile values remain outstanding.
 
 See [the implementation plan](docs/real-estate-assistant/IMPLEMENTATION_PLAN.md)

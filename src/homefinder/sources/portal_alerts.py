@@ -94,6 +94,7 @@ class SanitizedPortalAlertParser:
     expected_sender = "alerts@example.com"
     expected_host = "example.com"
     version = PARSER_VERSION
+    max_message_bytes = MAX_MESSAGE_BYTES
 
     @property
     def source(self) -> Source:

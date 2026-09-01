@@ -31,6 +31,18 @@ class AlertIngestionService:
     def parser_version(self) -> str:
         return self._parser.version
 
+    @property
+    def expected_sender(self) -> str:
+        return self._parser.expected_sender
+
+    @property
+    def max_message_bytes(self) -> int:
+        return self._parser.max_message_bytes
+
+    @property
+    def expected_host(self) -> str:
+        return self._parser.expected_host
+
     def ingest(self, raw_message: bytes) -> IngestionResult:
         parsed = self._parser.parse(raw_message)
         try:

@@ -7,9 +7,14 @@ class SourcePolicy:
     key: str
     allowed_senders: frozenset[str]
     allowed_hosts: frozenset[str]
+    max_message_bytes: int = 512_000
     page_fetch_enabled: bool = False
     max_messages_per_poll: int = 50
     timeout_seconds: float = 10.0
+
+    def __post_init__(self) -> None:
+        if self.max_message_bytes <= 0:
+            raise ValueError("max_message_bytes must be positive")
 
     def allows_sender(self, sender: str) -> bool:
         return sender.casefold() in self.allowed_senders

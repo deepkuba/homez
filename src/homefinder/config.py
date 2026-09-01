@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from enum import Enum
+from pathlib import Path
 from typing import Literal
 
 from pydantic import SecretStr, model_validator
@@ -30,6 +31,10 @@ class Settings(BaseSettings):
     environment: Environment = Environment.DEVELOPMENT
     database_url: SecretStr = SecretStr("sqlite:///homefinder-preview.db")
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
+    gmail_token_file: Path | None = None
+    gmail_token_key_file: Path | None = None
+    gmail_source_policy_file: Path | None = None
+    gmail_mailbox_key: str = "primary"
 
     @model_validator(mode="after")
     def validate_database(self) -> Settings:
