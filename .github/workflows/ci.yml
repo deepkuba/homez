@@ -156,8 +156,7 @@ jobs:
           chmod 0600 "$HOMEZ_SECRETS_DIR"/*
           printf '%s' '{"sources":{}}' > \
             "$HOMEZ_CONFIG_DIR/source-policy.json"
-          install -o 10001 -g 10001 -m 0600 /dev/null \
-            "$HOMEZ_STATE_DIR/gmail-token.json"
+          install -m 0666 /dev/null "$HOMEZ_STATE_DIR/gmail-token.json"
           compose() {
             docker compose --project-name homez-ci -f infra/compose.yaml "$@"
           }
