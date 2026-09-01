@@ -121,6 +121,9 @@ class CandidatePresentationRecord(Base):
         ForeignKey("property_candidates.id"), index=True
     )
     snapshot_id: Mapped[UUID] = mapped_column(ForeignKey("listing_snapshots.id"))
+    report_id: Mapped[UUID | None] = mapped_column(nullable=True, index=True)
+    section: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    material_fingerprint: Mapped[str | None] = mapped_column(String(64), nullable=True)
     presented_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     dismissed: Mapped[bool] = mapped_column(default=False)
 
@@ -241,6 +244,148 @@ class PendingRouteQueryRecord(Base):
     provider: Mapped[str] = mapped_column(String(100), index=True)
     queued_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
     reason: Mapped[str] = mapped_column(String(200))
+
+
+class WorkflowJobRecord(Base):
+    __tablename__ = "workflow_jobs"
+    __table_args__ = (
+        Index("ix_workflow_jobs_claim", "state", "available_at", "priority"),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True)
+    kind: Mapped[str] = mapped_column(String(50), index=True)
+    idempotency_key: Mapped[str] = mapped_column(String(500), unique=True)
+    payload_json: Mapped[str] = mapped_column(Text)
+    state: Mapped[str] = mapped_column(String(20), index=True)
+    priority: Mapped[int] = mapped_column(default=100)
+    available_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    attempt_count: Mapped[int] = mapped_column(default=0)
+    max_attempts: Mapped[int] = mapped_column(default=8)
+    lease_owner: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    lease_token: Mapped[UUID | None] = mapped_column(nullable=True, unique=True)
+    lease_expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, index=True
+    )
+    parent_job_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("workflow_jobs.id"), nullable=True
+    )
+    root_job_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("workflow_jobs.id"), nullable=True, index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    started_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    finished_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    last_error_code: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    last_error_detail: Mapped[str | None] = mapped_column(String(500), nullable=True)
+
+
+class WorkflowJobAttemptRecord(Base):
+    __tablename__ = "workflow_job_attempts"
+
+    job_id: Mapped[UUID] = mapped_column(
+        ForeignKey("workflow_jobs.id"), primary_key=True
+    )
+    attempt_number: Mapped[int] = mapped_column(primary_key=True)
+    lease_token: Mapped[UUID] = mapped_column(unique=True)
+    worker_id: Mapped[str] = mapped_column(String(200))
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    finished_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    outcome: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    error_code: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    error_detail: Mapped[str | None] = mapped_column(String(500), nullable=True)
+
+
+class CandidateFactSetRecord(Base):
+    __tablename__ = "candidate_fact_sets"
+    __table_args__ = (
+        UniqueConstraint("candidate_id", "snapshot_id", "normalizer_version"),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True)
+    candidate_id: Mapped[UUID] = mapped_column(
+        ForeignKey("property_candidates.id"), index=True
+    )
+    listing_id: Mapped[UUID] = mapped_column(ForeignKey("listings.id"))
+    snapshot_id: Mapped[UUID] = mapped_column(ForeignKey("listing_snapshots.id"))
+    normalizer_version: Mapped[str] = mapped_column(String(50))
+    facts_schema_version: Mapped[int]
+    facts_json: Mapped[str] = mapped_column(Text)
+    facts_hash: Mapped[str] = mapped_column(String(64))
+    material_fingerprint: Mapped[str] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class CandidateMatchEvaluationRecord(Base):
+    __tablename__ = "candidate_match_evaluations"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True)
+    candidate_id: Mapped[UUID] = mapped_column(
+        ForeignKey("property_candidates.id"), index=True
+    )
+    listing_id: Mapped[UUID] = mapped_column(ForeignKey("listings.id"))
+    snapshot_id: Mapped[UUID] = mapped_column(ForeignKey("listing_snapshots.id"))
+    fact_set_id: Mapped[UUID] = mapped_column(ForeignKey("candidate_fact_sets.id"))
+    buyer_profile_version: Mapped[int] = mapped_column(
+        ForeignKey("buyer_profiles.version")
+    )
+    routing_goal_version: Mapped[int]
+    matcher_version: Mapped[str] = mapped_column(String(50))
+    input_fingerprint: Mapped[str] = mapped_column(String(64), unique=True)
+    facts_json: Mapped[str] = mapped_column(Text)
+    explanation_json: Mapped[str] = mapped_column(Text)
+    eligible: Mapped[bool]
+    contains_unknown_hard_rule: Mapped[bool]
+    score: Mapped[Decimal] = mapped_column(Numeric(8, 3))
+    confidence: Mapped[Decimal] = mapped_column(Numeric(4, 3))
+    evaluated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class ReportDraftRecord(Base):
+    __tablename__ = "report_drafts"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True)
+    report_key: Mapped[str] = mapped_column(String(64), unique=True)
+    period: Mapped[str] = mapped_column(String(8), index=True)
+    cutoff_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    buyer_profile_version: Mapped[int] = mapped_column(
+        ForeignKey("buyer_profiles.version")
+    )
+    routing_goal_version: Mapped[int]
+    selection_version: Mapped[str] = mapped_column(String(50))
+    render_version: Mapped[str] = mapped_column(String(50))
+    status: Mapped[str] = mapped_column(String(20))
+    html_body: Mapped[str] = mapped_column(Text)
+    text_body: Mapped[str] = mapped_column(Text)
+    content_hash: Mapped[str] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    prepared_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class ReportItemRecord(Base):
+    __tablename__ = "report_items"
+    __table_args__ = (UniqueConstraint("report_id", "candidate_id"),)
+
+    report_id: Mapped[UUID] = mapped_column(
+        ForeignKey("report_drafts.id"), primary_key=True
+    )
+    section: Mapped[str] = mapped_column(String(20), primary_key=True)
+    position: Mapped[int] = mapped_column(primary_key=True)
+    candidate_id: Mapped[UUID] = mapped_column(ForeignKey("property_candidates.id"))
+    listing_id: Mapped[UUID] = mapped_column(ForeignKey("listings.id"))
+    snapshot_id: Mapped[UUID] = mapped_column(ForeignKey("listing_snapshots.id"))
+    evaluation_id: Mapped[UUID] = mapped_column(
+        ForeignKey("candidate_match_evaluations.id")
+    )
+    canonical_url: Mapped[str] = mapped_column(String(2048))
+    material_fingerprint: Mapped[str] = mapped_column(String(64))
+    selection_reason: Mapped[str] = mapped_column(Text)
 
 
 class DigestDeliveryRecord(Base):

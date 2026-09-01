@@ -1,15 +1,17 @@
 import argparse
 import base64
 import json
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
+from datetime import datetime, timezone
+from functools import partial
 from pathlib import Path
 
 from sqlalchemy import create_engine
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, sessionmaker
 
 from homefinder.application.gmail_labels import GmailLabelManager
 from homefinder.application.ingest_alert import AlertIngestionService
-from homefinder.application.poll_gmail import GmailPollingService
+from homefinder.application.poll_gmail import GmailPollingService, PollResult
 from homefinder.catalog.orm import Base
 from homefinder.catalog.repository import SqlAlchemyCatalogRepository
 from homefinder.config import Environment, Settings
@@ -33,6 +35,7 @@ from homefinder.sources.portal_alerts import (
     SanitizedPortalAlertParser,
 )
 from homefinder.sources.sample_portal import SamplePortalAlertParser
+from homefinder.workflow.service import WorkflowService
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -67,6 +70,26 @@ def _parser() -> argparse.ArgumentParser:
     )
     prune.add_argument("directory", type=Path)
     prune.add_argument("--keep-days", type=int, default=14)
+    commands.add_parser(
+        "reconcile-workflow", help="enqueue missing catalog workflow stages"
+    )
+    commands.add_parser("workflow-status", help="show durable workflow state counts")
+    worker = commands.add_parser("workflow-worker", help="run durable workflow jobs")
+    worker.add_argument("--worker-id", required=True)
+    worker.add_argument("--max-jobs", type=int, default=100)
+    report = commands.add_parser(
+        "enqueue-report", help="enqueue deterministic report preparation"
+    )
+    report.add_argument("--period", required=True)
+    report.add_argument("--cutoff-at", required=True)
+    report.add_argument("--routing-goal-version", type=int, default=1)
+    enqueue_poll = commands.add_parser(
+        "enqueue-poll", help="enqueue an idempotent source polling slot"
+    )
+    enqueue_poll.add_argument(
+        "--source", required=True, choices=("otodom", "morizon", "gratka")
+    )
+    enqueue_poll.add_argument("--scheduled-at", required=True)
     return parser
 
 
@@ -91,43 +114,51 @@ def main(argv: Sequence[str] | None = None) -> int:
         for path in prune_backups(args.directory, keep_days=args.keep_days):
             print(path)
         return 0
-    if args.command == "poll-gmail":
+    if args.command in {
+        "reconcile-workflow",
+        "workflow-status",
+        "workflow-worker",
+        "enqueue-report",
+        "enqueue-poll",
+    }:
         settings = Settings()
-        if settings.environment is not Environment.PRODUCTION:
-            raise SystemExit("poll-gmail requires HOMEFINDER_ENVIRONMENT=production")
-        if (
-            settings.gmail_token_file is None
-            or settings.gmail_token_key_file is None
-            or settings.gmail_source_policy_file is None
-        ):
-            raise SystemExit("Gmail secret and policy file paths are required")
-        policy = _load_source_policy(settings.gmail_source_policy_file, args.source)
-        parser = _portal_parser(args.source, policy)
         engine = create_engine(settings.database_url.get_secret_value())
-        store = EncryptedTokenStore(load_encryption_key(settings.gmail_token_key_file))
-        provider = RefreshableOAuthTokenProvider(
-            store=store,
-            token_path=settings.gmail_token_file,
-            refresh_client=GoogleOAuthRefreshClient(),
+        workflow = WorkflowService(
+            sessionmaker(engine, expire_on_commit=False),
+            pollers=(
+                _gmail_pollers(settings) if args.command == "workflow-worker" else None
+            ),
         )
-        with Session(engine) as session:
-            gmail = GmailApiClient(provider)
-            labels = GmailLabelManager(session, gmail).resolve(
-                mailbox_key=settings.gmail_mailbox_key, source_key=args.source
+        now = datetime.now(timezone.utc)
+        if args.command == "reconcile-workflow":
+            print(workflow.reconcile_catalog(now=now))
+        elif args.command == "workflow-status":
+            print(json.dumps(workflow.jobs.status(), sort_keys=True))
+        elif args.command == "workflow-worker":
+            print(
+                workflow.run_until_idle(
+                    worker_id=args.worker_id, now=now, max_jobs=args.max_jobs
+                )
             )
-            poll_result = GmailPollingService(
-                session=session,
-                gmail=gmail,
-                ingestion=AlertIngestionService(
-                    parser=parser,
-                    catalog=SqlAlchemyCatalogRepository(session),
-                ),
-                policies=SourcePolicyRegistry((policy,)),
-                source_key=args.source,
-                mailbox_key=settings.gmail_mailbox_key,
-                labels=labels,
-            ).poll()
-        print(poll_result)
+        elif args.command == "enqueue-report":
+            cutoff = _parse_datetime(args.cutoff_at)
+            print(
+                workflow.enqueue_report(
+                    period=args.period,
+                    cutoff_at=cutoff,
+                    routing_goal_version=args.routing_goal_version,
+                )
+            )
+        else:
+            print(
+                workflow.enqueue_poll(
+                    source_key=args.source,
+                    scheduled_at=_parse_datetime(args.scheduled_at),
+                )
+            )
+        return 0
+    if args.command == "poll-gmail":
+        print(_poll_gmail(Settings(), args.source))
         return 0
     engine = create_engine(args.database_url)
     Base.metadata.create_all(engine)
@@ -182,6 +213,60 @@ def _load_source_policy(path: Path, source_key: str) -> SourcePolicy:
         )
     except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError) as error:
         raise SystemExit("source policy file is invalid") from error
+
+
+def _parse_datetime(value: str) -> datetime:
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError as error:
+        raise SystemExit("timestamp must be ISO-8601") from error
+    if parsed.tzinfo is None:
+        raise SystemExit("timestamp must include an explicit timezone")
+    return parsed
+
+
+def _poll_gmail(settings: Settings, source_key: str) -> PollResult:
+    if settings.environment is not Environment.PRODUCTION:
+        raise SystemExit("Gmail polling requires HOMEFINDER_ENVIRONMENT=production")
+    if (
+        settings.gmail_token_file is None
+        or settings.gmail_token_key_file is None
+        or settings.gmail_source_policy_file is None
+    ):
+        raise SystemExit("Gmail secret and policy file paths are required")
+    policy = _load_source_policy(settings.gmail_source_policy_file, source_key)
+    parser = _portal_parser(source_key, policy)
+    engine = create_engine(settings.database_url.get_secret_value())
+    store = EncryptedTokenStore(load_encryption_key(settings.gmail_token_key_file))
+    provider = RefreshableOAuthTokenProvider(
+        store=store,
+        token_path=settings.gmail_token_file,
+        refresh_client=GoogleOAuthRefreshClient(),
+    )
+    with Session(engine) as session:
+        gmail = GmailApiClient(provider)
+        labels = GmailLabelManager(session, gmail).resolve(
+            mailbox_key=settings.gmail_mailbox_key, source_key=source_key
+        )
+        return GmailPollingService(
+            session=session,
+            gmail=gmail,
+            ingestion=AlertIngestionService(
+                parser=parser,
+                catalog=SqlAlchemyCatalogRepository(session),
+            ),
+            policies=SourcePolicyRegistry((policy,)),
+            source_key=source_key,
+            mailbox_key=settings.gmail_mailbox_key,
+            labels=labels,
+        ).poll()
+
+
+def _gmail_pollers(settings: Settings) -> dict[str, Callable[[], object]]:
+    return {
+        source: partial(_poll_gmail, settings, source)
+        for source in ("otodom", "morizon", "gratka")
+    }
 
 
 if __name__ == "__main__":

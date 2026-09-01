@@ -123,6 +123,32 @@ DATABASE_URL=sqlite:///migration-check.sqlite3 .venv/bin/alembic upgrade head
 
 Production uses PostgreSQL/PostGIS through `infra/compose.yaml`.
 
+## Persistent workflow
+
+The alert-to-report path is coordinated by durable, idempotent jobs. Run
+`homefinder reconcile-workflow` after polling to recover any catalog commit that
+occurred before its successor job was queued, then run workers with a stable
+operational identifier:
+
+```bash
+homefinder enqueue-poll \
+  --source otodom --scheduled-at 2026-09-04T07:00:00+00:00
+homefinder workflow-worker --worker-id worker-1 --max-jobs 100
+homefinder workflow-status
+homefinder enqueue-report \
+  --period 2026-W36 \
+  --cutoff-at 2026-09-04T08:00:00+00:00 \
+  --routing-goal-version 1
+```
+
+Jobs use fenced leases, bounded deterministic backoff, attempt history,
+dead-letter/manual-review states, and idempotency keys. Normalized facts, match
+explanations, buyer-profile/routing versions, and prepared report bodies are
+immutable persisted artifacts. Missing hard evidence remains `unknown` and is
+excluded from the compliant section. Draft preparation does not record a
+presentation; delivery acknowledgement in the later delivery slice owns that
+side effect.
+
 ## Production hardening
 
 Slice 10 provides `homefinder.operations` for redacted JSON logs, component/job
