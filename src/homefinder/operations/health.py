@@ -23,6 +23,7 @@ class HealthSnapshot:
     status: str
     components: dict[str, ComponentHealth]
     oldest_pending_job: str | None
+    oldest_pending_at: datetime | None
 
 
 class HealthRegistry:
@@ -58,4 +59,9 @@ class HealthRegistry:
         oldest = (
             min(self._jobs, key=lambda name: self._jobs[name]) if self._jobs else None
         )
-        return HealthSnapshot(status, dict(self._components), oldest)
+        return HealthSnapshot(
+            status,
+            dict(self._components),
+            oldest,
+            self._jobs[oldest] if oldest is not None else None,
+        )

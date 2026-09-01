@@ -45,6 +45,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 for name, component in snapshot.components.items()
             },
             "oldest_pending_job": snapshot.oldest_pending_job,
+            "oldest_pending_at": snapshot.oldest_pending_at.isoformat()
+            if snapshot.oldest_pending_at is not None
+            else None,
         }
 
     @application.post("/feedback/{report_id}/{listing_id}")

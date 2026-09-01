@@ -301,13 +301,16 @@ allowance plus application safety ceiling.
 requests validate Krakow transit/drive/walk/bicycle output before production use.
 
 **Implemented:** versioned destination and routing-goal value objects; conservative
-morning/return aggregation using the slower direction; explicit pass/fail/unknown
+08:30 arrival and 17:30 return-departure semantics; morning/return aggregation
+using the slower direction; explicit pass/fail/unknown
 route status with age, confidence, winning modes, and minute margin; cache keys
-that include destination and goal versions; a quota-aware route enricher; a
-thread-safe local safety ledger; one-shot provider-quota circuit-breaker alerts;
-the Google Routes REST adapter; and the `routing_quota_ledger` and
-`route_observations` migration tables. Cached routes remain available for report
-display, while stale or missing routes never satisfy the hard commute rule.
+that include provider, endpoints, goal version, direction, mode, requested time,
+and time semantics; a quota-aware route enricher; a transactional PostgreSQL
+safety ledger; durable one-shot provider-quota circuit-breaker alerts; provider
+fetch-time observations; the Google Routes REST adapter; and persistent quota,
+cache, and pending-route tables. Cached routes survive restart, while stale,
+missing, and quota-blocked routes never satisfy the hard commute rule. Health
+reports remaining quota and the oldest pending route.
 
 ### Slice 6 — Digest, safe sharing, and feedback loop
 

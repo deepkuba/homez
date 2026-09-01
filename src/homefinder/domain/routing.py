@@ -41,6 +41,7 @@ class RouteObservation:
     provider: str
     observed_at: datetime
     confidence: float = 1.0
+    advisories: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -99,9 +100,13 @@ def _best(
     routes: tuple[RouteObservation, ...],
     evaluated_at: datetime,
 ) -> tuple[int | None, TravelMode | None, bool, float]:
-    usable = [route for route in routes if route.mode in goal.allowed_modes]
+    allowed = [route for route in routes if route.mode in goal.allowed_modes]
+    usable = [
+        route
+        for route in allowed
+        if evaluated_at - route.observed_at <= goal.stale_after
+    ]
     if not usable:
-        return None, None, False, 0.0
-    stale = any(evaluated_at - route.observed_at > goal.stale_after for route in usable)
+        return None, None, bool(allowed), 0.0
     best = min(usable, key=lambda route: route.duration_minutes)
-    return best.duration_minutes, best.mode, stale, best.confidence
+    return best.duration_minutes, best.mode, False, best.confidence
