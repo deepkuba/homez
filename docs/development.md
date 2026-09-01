@@ -177,7 +177,18 @@ exploration sections; `render_share_text` is safe to copy or use as `mailto`
 content and never includes feedback tokens. Tokens are random at issue time,
 stored as SHA-256 hashes, scoped to one report/listing, expiring, and single-use.
 Feedback mutation is POST-only and checks CSRF before recording an auditable
-event. The persistent outbox claims prepared drafts with a fenced token, retries
+event. The mobile GET form never receives the capability token at the server:
+private links carry it in the URL fragment, remove the fragment from browser
+history, and submit it only with the deliberate POST. Responses disable caching
+and referrers; the CSRF cookie is Secure, HttpOnly, SameSite=Strict, and narrowly
+path-scoped. Configure `HOMEFINDER_FEEDBACK_RATE_SALT_FILE` with a private random
+value used only to pseudonymize rate-limit actors. Configure an approved HTTPS
+origin in `HOMEFINDER_FEEDBACK_BASE_URL` and a separate, stable 32-byte-or-longer
+secret in `HOMEFINDER_FEEDBACK_TOKEN_KEY_FILE`. The delivery worker derives the
+same private capability after a retry while storing only its hash; it adds links
+only to HTML and preserves the token-free plain-text share representation. The
+persistent outbox claims
+prepared drafts with a fenced token, retries
 only pre-acknowledgement failures, and reuses a stable provider idempotency key
 after stale-claim recovery. `schedule-delivery` calculates the most recent due
 Friday 10:00 `Europe/Warsaw` period, including DST and delayed recovery;
@@ -206,9 +217,10 @@ must be treated as stale by callers.
 
 The minimal manual correction contract is `POST /corrections/{property_id}` with
 `field`, `value`, `corrected_by`, and `reason`. Corrections are append-only and
-auditable. The endpoint and in-memory store are suitable for development only;
-production persistence must use migration `20260831_07` and add authentication/
-authorization before exposure.
+auditable. The endpoint requires `Authorization: Bearer ...`, with the expected
+value read from `HOMEFINDER_ADMIN_BEARER_TOKEN_FILE`; it fails closed if the
+secret is unavailable. The current correction store is suitable for development
+only; production persistence must use migration `20260831_07` before exposure.
 
 ## Renovation and comparable workflow
 

@@ -40,6 +40,10 @@ class Settings(BaseSettings):
     mail_api_endpoint: str | None = None
     mail_api_host: str | None = None
     mail_sender: str | None = None
+    feedback_base_url: str | None = None
+    feedback_token_key_file: Path | None = None
+    feedback_rate_salt_file: Path | None = None
+    admin_bearer_token_file: Path | None = None
 
     @model_validator(mode="after")
     def validate_database(self) -> Settings:

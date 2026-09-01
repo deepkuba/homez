@@ -420,10 +420,13 @@ class DigestDeliveryRecord(Base):
 
 class FeedbackTokenRecord(Base):
     __tablename__ = "feedback_tokens"
+    __table_args__ = (UniqueConstraint("report_id", "listing_id", "scope"),)
 
     token_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
     report_id: Mapped[str] = mapped_column(String(100), index=True)
     listing_id: Mapped[str] = mapped_column(String(100), index=True)
+    scope: Mapped[str] = mapped_column(String(30), default="feedback")
+    issued_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     used_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
@@ -438,6 +441,7 @@ class FeedbackEventRecord(Base):
     report_id: Mapped[str] = mapped_column(String(100))
     listing_id: Mapped[str] = mapped_column(String(100))
     value: Mapped[str] = mapped_column(String(20))
+    actor_hash: Mapped[str] = mapped_column(String(64), index=True)
     recorded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 

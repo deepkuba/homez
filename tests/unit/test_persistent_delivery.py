@@ -54,6 +54,8 @@ class FakeTransport(MailTransport):
     def __init__(self, *, fail_once: bool = False) -> None:
         self.fail_once = fail_once
         self.keys: list[str] = []
+        self.html_bodies: list[str] = []
+        self.text_bodies: list[str] = []
 
     def send(
         self,
@@ -64,8 +66,10 @@ class FakeTransport(MailTransport):
         text_body: str,
         idempotency_key: str,
     ) -> MailAcknowledgement:
-        del recipient, subject, html_body, text_body
+        del recipient, subject
         self.keys.append(idempotency_key)
+        self.html_bodies.append(html_body)
+        self.text_bodies.append(text_body)
         if self.fail_once:
             self.fail_once = False
             raise RuntimeError("pre-acknowledgement failure")
@@ -149,6 +153,33 @@ def test_pre_ack_failure_retries_with_same_provider_idempotency_key(
         f"homez:2026-W36:{report_id}",
         f"homez:2026-W36:{report_id}",
     ]
+
+
+def test_delivery_adds_private_links_only_to_html(tmp_path: Path) -> None:
+    sessions = _sessions(tmp_path)
+    report_id = _report(sessions)
+    outbox = DeliveryOutbox(sessions)
+    outbox.enqueue(
+        period="2026-W36",
+        report_id=report_id,
+        recipient="buyer@example.invalid",
+        render_version="digest-v1",
+        now=NOW,
+    )
+    transport = FakeTransport()
+    worker = DeliveryWorker(
+        sessions,
+        outbox,
+        transport,
+        feedback_links=lambda _report_id, _now: (
+            ("Compliant home 1", "https://feedback.example/feedback/r/l#secret"),
+        ),
+    )
+
+    assert worker.run_once(now=NOW)
+    assert "Private feedback" in transport.html_bodies[0]
+    assert "#secret" in transport.html_bodies[0]
+    assert transport.text_bodies == ["safe share text"]
 
 
 def test_http_transport_requires_approved_https_host_and_returns_ack(

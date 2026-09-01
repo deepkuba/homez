@@ -2,9 +2,10 @@ import argparse
 import base64
 import json
 from collections.abc import Callable, Sequence
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from functools import partial
 from pathlib import Path
+from uuid import UUID
 
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
@@ -12,7 +13,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from homefinder.application.gmail_labels import GmailLabelManager
 from homefinder.application.ingest_alert import AlertIngestionService
 from homefinder.application.poll_gmail import GmailPollingService, PollResult
-from homefinder.catalog.orm import Base, ReportDraftRecord
+from homefinder.catalog.orm import Base, ReportDraftRecord, ReportItemRecord
 from homefinder.catalog.repository import SqlAlchemyCatalogRepository
 from homefinder.config import Environment, Settings
 from homefinder.digest.delivery import (
@@ -21,6 +22,7 @@ from homefinder.digest.delivery import (
     FridayScheduler,
     HttpMailTransport,
 )
+from homefinder.digest.feedback import SqlAlchemyFeedbackService, private_feedback_url
 from homefinder.operations.backup import (
     backup_database,
     prune_backups,
@@ -164,7 +166,12 @@ def main(argv: Sequence[str] | None = None) -> int:
                 )
             )
         else:
-            worker = DeliveryWorker(sessions, outbox, _mail_transport(settings))
+            worker = DeliveryWorker(
+                sessions,
+                outbox,
+                _mail_transport(settings),
+                feedback_links=_feedback_links(settings, sessions),
+            )
             delivered = 0
             while delivered < args.max_deliveries and worker.run_once(now=now):
                 delivered += 1
@@ -323,6 +330,50 @@ def _gmail_pollers(settings: Settings) -> dict[str, Callable[[], object]]:
         source: partial(_poll_gmail, settings, source)
         for source in ("otodom", "morizon", "gratka")
     }
+
+
+def _feedback_links(
+    settings: Settings,
+    sessions: sessionmaker[Session],
+) -> Callable[[str, datetime], tuple[tuple[str, str], ...]]:
+    if settings.feedback_base_url is None or settings.feedback_token_key_file is None:
+        raise SystemExit("feedback URL and signing-key file are required")
+    base_url = settings.feedback_base_url
+    signing_key = read_secret_text(settings.feedback_token_key_file).encode()
+    service = SqlAlchemyFeedbackService(sessions)
+
+    def issue(report_id: str, now: datetime) -> tuple[tuple[str, str], ...]:
+        with sessions() as session:
+            items = session.scalars(
+                select(ReportItemRecord)
+                .where(ReportItemRecord.report_id == UUID(report_id))
+                .order_by(ReportItemRecord.section, ReportItemRecord.position)
+            ).all()
+        links = []
+        for item in items:
+            listing_id = str(item.listing_id)
+            token = service.issue_stable(
+                report_id,
+                listing_id,
+                now=now,
+                ttl=timedelta(days=7),
+                signing_key=signing_key,
+            )
+            label = f"{item.section.title()} home {item.position + 1}"
+            links.append(
+                (
+                    label,
+                    private_feedback_url(
+                        base_url,
+                        report_id=report_id,
+                        listing_id=listing_id,
+                        token=token,
+                    ),
+                )
+            )
+        return tuple(links)
+
+    return issue
 
 
 def _mail_transport(settings: Settings) -> HttpMailTransport:

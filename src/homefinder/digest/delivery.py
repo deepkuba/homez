@@ -5,6 +5,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone
 from enum import Enum
+from html import escape
 from pathlib import Path
 from threading import Lock
 from urllib.parse import urlsplit
@@ -321,10 +322,13 @@ class DeliveryWorker:
         sessions: sessionmaker[Session],
         outbox: DeliveryOutbox,
         transport: MailTransport,
+        feedback_links: Callable[[str, datetime], tuple[tuple[str, str], ...]]
+        | None = None,
     ) -> None:
         self._sessions = sessions
         self._outbox = outbox
         self._transport = transport
+        self._feedback_links = feedback_links
 
     def run_once(self, *, now: datetime) -> bool:
         claim = self._outbox.claim(now=now)
@@ -335,10 +339,16 @@ class DeliveryWorker:
                 report = session.get(ReportDraftRecord, UUID(claim.report_id))
                 if report is None or report.status != "prepared":
                     raise RuntimeError("prepared report is unavailable")
+                html_body = report.html_body
+                if self._feedback_links is not None:
+                    html_body = append_private_feedback_links(
+                        html_body,
+                        self._feedback_links(claim.report_id, now),
+                    )
                 acknowledgement = self._transport.send(
                     recipient=claim.recipient,
                     subject=f"Homefinder weekly report {claim.period}",
-                    html_body=report.html_body,
+                    html_body=html_body,
                     text_body=report.text_body,
                     idempotency_key=f"homez:{claim.period}:{claim.report_id}",
                 )
@@ -352,3 +362,24 @@ class DeliveryWorker:
         else:
             self._outbox.acknowledge(claim, acknowledgement)
         return True
+
+
+def append_private_feedback_links(
+    html_body: str, links: tuple[tuple[str, str], ...]
+) -> str:
+    """Add private actions to HTML without contaminating safe-share text."""
+    if not links:
+        return html_body
+    items = "".join(
+        f'<li><a rel="noreferrer" href="{escape(url, quote=True)}">'
+        f"{escape(label)}</a></li>"
+        for label, url in links
+    )
+    section = (
+        "<section><h2>Private feedback</h2>"
+        "<p>These links are private and single-use.</p>"
+        f"<ul>{items}</ul></section>"
+    )
+    if "</main>" in html_body:
+        return html_body.replace("</main>", f"{section}</main>", 1)
+    return f"{html_body}{section}"
