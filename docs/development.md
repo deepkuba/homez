@@ -177,9 +177,22 @@ exploration sections; `render_share_text` is safe to copy or use as `mailto`
 content and never includes feedback tokens. Tokens are random at issue time,
 stored as SHA-256 hashes, scoped to one report/listing, expiring, and single-use.
 Feedback mutation is POST-only and checks CSRF before recording an auditable
-event. Production delivery must provide persistent implementations backed by
-migration `20260831_06`, a real mail sender, and a scheduler for Friday 10:00
-`Europe/Warsaw`. Do not put feedback URLs in shared content.
+event. The persistent outbox claims prepared drafts with a fenced token, retries
+only pre-acknowledgement failures, and reuses a stable provider idempotency key
+after stale-claim recovery. `schedule-delivery` calculates the most recent due
+Friday 10:00 `Europe/Warsaw` period, including DST and delayed recovery;
+`delivery-worker` sends through an approved HTTPS provider that acknowledges a
+message ID. Configure only secret-file paths for the recipient and provider
+token. Do not put feedback URLs in shared content.
+
+```bash
+homefinder schedule-delivery
+homefinder delivery-worker --max-deliveries 10
+```
+
+The provider must honor the `Idempotency-Key` header. The recipient remains
+blocked on human task #33 and live delivery remains blocked on #69. Test-inbox
+HTML/plain rendering evidence must be recorded before activation.
 
 ## Environmental and building enrichment
 

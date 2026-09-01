@@ -5,7 +5,8 @@ alert ingestion, catalog history and deduplication, governed Gmail polling,
 fixture-backed profile/ranking, routing, digest/feedback, environmental/building
 enrichment, conservative renovation/comparable assessment, and primary-market
 developer/project risk dossiers, plus production-hardening contracts for health,
-redacted logs, encrypted backups, and durable alert-to-report workflow jobs.
+redacted logs, encrypted backups, durable alert-to-report workflow jobs, and a
+retry-safe weekly delivery outbox.
 Live Gmail consent/sandbox verification, the OLX alert contract, production sender configuration, mail
 transport, and buyer approval of provisional profile values remain outstanding.
 

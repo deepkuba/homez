@@ -393,8 +393,29 @@ class DigestDeliveryRecord(Base):
 
     period: Mapped[str] = mapped_column(String(8), primary_key=True)
     report_id: Mapped[str] = mapped_column(String(100), unique=True)
-    sent_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     recipient: Mapped[str] = mapped_column(String(320))
+    render_version: Mapped[str] = mapped_column(String(50), default="legacy")
+    state: Mapped[str] = mapped_column(String(30), default="pending", index=True)
+    next_attempt_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), index=True
+    )
+    attempt_count: Mapped[int] = mapped_column(default=0)
+    claim_token: Mapped[UUID | None] = mapped_column(nullable=True, unique=True)
+    claimed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    provider_message_id: Mapped[str | None] = mapped_column(
+        String(255), nullable=True, unique=True
+    )
+    acknowledged_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    sent_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    last_error: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
 class FeedbackTokenRecord(Base):

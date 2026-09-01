@@ -35,6 +35,11 @@ class Settings(BaseSettings):
     gmail_token_key_file: Path | None = None
     gmail_source_policy_file: Path | None = None
     gmail_mailbox_key: str = "primary"
+    report_recipient_file: Path | None = None
+    mail_api_token_file: Path | None = None
+    mail_api_endpoint: str | None = None
+    mail_api_host: str | None = None
+    mail_sender: str | None = None
 
     @model_validator(mode="after")
     def validate_database(self) -> Settings:

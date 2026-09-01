@@ -6,15 +6,21 @@ from datetime import datetime, timezone
 from functools import partial
 from pathlib import Path
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from homefinder.application.gmail_labels import GmailLabelManager
 from homefinder.application.ingest_alert import AlertIngestionService
 from homefinder.application.poll_gmail import GmailPollingService, PollResult
-from homefinder.catalog.orm import Base
+from homefinder.catalog.orm import Base, ReportDraftRecord
 from homefinder.catalog.repository import SqlAlchemyCatalogRepository
 from homefinder.config import Environment, Settings
+from homefinder.digest.delivery import (
+    DeliveryOutbox,
+    DeliveryWorker,
+    FridayScheduler,
+    HttpMailTransport,
+)
 from homefinder.operations.backup import (
     backup_database,
     prune_backups,
@@ -26,6 +32,7 @@ from homefinder.sources.gmail import (
     GoogleOAuthRefreshClient,
     RefreshableOAuthTokenProvider,
     load_encryption_key,
+    read_secret_text,
 )
 from homefinder.sources.policy import SourcePolicy, SourcePolicyRegistry
 from homefinder.sources.portal_alerts import (
@@ -90,6 +97,14 @@ def _parser() -> argparse.ArgumentParser:
         "--source", required=True, choices=("otodom", "morizon", "gratka")
     )
     enqueue_poll.add_argument("--scheduled-at", required=True)
+    schedule = commands.add_parser(
+        "schedule-delivery", help="enqueue the most recent due Friday report"
+    )
+    schedule.add_argument("--now")
+    delivery = commands.add_parser(
+        "delivery-worker", help="send claimed delivery outbox records"
+    )
+    delivery.add_argument("--max-deliveries", type=int, default=10)
     return parser
 
 
@@ -113,6 +128,47 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.command == "prune-backups":
         for path in prune_backups(args.directory, keep_days=args.keep_days):
             print(path)
+        return 0
+    if args.command in {"schedule-delivery", "delivery-worker"}:
+        settings = Settings()
+        engine = create_engine(settings.database_url.get_secret_value())
+        sessions = sessionmaker(engine, expire_on_commit=False)
+        outbox = DeliveryOutbox(sessions)
+        now = (
+            _parse_datetime(args.now)
+            if getattr(args, "now", None)
+            else datetime.now(timezone.utc)
+        )
+        if args.command == "schedule-delivery":
+            if settings.report_recipient_file is None:
+                raise SystemExit("report recipient secret file is required")
+            period = FridayScheduler.most_recent_due_period(now)
+            with sessions() as session:
+                report = session.scalar(
+                    select(ReportDraftRecord)
+                    .where(
+                        ReportDraftRecord.period == period,
+                        ReportDraftRecord.status == "prepared",
+                    )
+                    .order_by(ReportDraftRecord.prepared_at.desc())
+                )
+            if report is None:
+                raise SystemExit("no prepared report exists for the due period")
+            print(
+                outbox.enqueue(
+                    period=period,
+                    report_id=str(report.id),
+                    recipient=read_secret_text(settings.report_recipient_file),
+                    render_version=report.render_version,
+                    now=now,
+                )
+            )
+        else:
+            worker = DeliveryWorker(sessions, outbox, _mail_transport(settings))
+            delivered = 0
+            while delivered < args.max_deliveries and worker.run_once(now=now):
+                delivered += 1
+            print(delivered)
         return 0
     if args.command in {
         "reconcile-workflow",
@@ -267,6 +323,22 @@ def _gmail_pollers(settings: Settings) -> dict[str, Callable[[], object]]:
         source: partial(_poll_gmail, settings, source)
         for source in ("otodom", "morizon", "gratka")
     }
+
+
+def _mail_transport(settings: Settings) -> HttpMailTransport:
+    if (
+        settings.mail_api_token_file is None
+        or settings.mail_api_endpoint is None
+        or settings.mail_api_host is None
+        or settings.mail_sender is None
+    ):
+        raise SystemExit("mail provider settings and secret file are required")
+    return HttpMailTransport(
+        endpoint=settings.mail_api_endpoint,
+        allowed_host=settings.mail_api_host,
+        token_file=settings.mail_api_token_file,
+        sender=settings.mail_sender,
+    )
 
 
 if __name__ == "__main__":
