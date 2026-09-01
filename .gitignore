@@ -10,3 +10,6 @@ __pycache__/
 homefinder-preview.db
 preview.html
 preview-*.html
+secrets/
+state/
+.release-evidence/

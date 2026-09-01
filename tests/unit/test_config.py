@@ -29,6 +29,23 @@ def test_production_database_secret_is_redacted() -> None:
     assert password not in str(settings)
 
 
+def test_production_database_url_loads_from_secret_file(tmp_path) -> None:
+    password = "file-only-password"
+    secret = tmp_path / "database-url"
+    secret.write_text(
+        f"postgresql+psycopg://homefinder:{password}@db/homefinder",
+        encoding="utf-8",
+    )
+    secret.chmod(0o600)
+
+    settings = Settings(
+        environment="production", database_url_file=secret, _env_file=None
+    )
+
+    assert settings.database_url.get_secret_value().endswith("@db/homefinder")
+    assert password not in repr(settings)
+
+
 def test_invalid_database_url_is_rejected() -> None:
     with pytest.raises(ValidationError, match="valid SQLAlchemy database URL"):
         Settings(database_url="not a database URL", _env_file=None)

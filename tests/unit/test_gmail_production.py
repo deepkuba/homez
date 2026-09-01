@@ -16,6 +16,7 @@ from homefinder.sources.gmail import (
     OAuthRefreshResult,
     RefreshableOAuthTokenProvider,
     TokenError,
+    _secret_permissions_allowed,
     load_encryption_key,
     read_secret_text,
 )
@@ -115,6 +116,27 @@ def test_secret_reader_rejects_symlinks_and_redacts_errors(tmp_path: Path) -> No
         read_secret_text(link)
 
     assert password not in str(captured.value)
+
+
+def test_root_owned_read_only_container_secret_is_allowed_only_in_mount() -> None:
+    assert _secret_permissions_allowed(
+        Path("/run/secrets/database_url"),
+        owner_uid=0,
+        mode=0o444,
+        current_uid=10001,
+    )
+    assert not _secret_permissions_allowed(
+        Path("/outside-secrets/database_url"),
+        owner_uid=0,
+        mode=0o444,
+        current_uid=10001,
+    )
+    assert not _secret_permissions_allowed(
+        Path("/run/secrets/database_url"),
+        owner_uid=0,
+        mode=0o466,
+        current_uid=10001,
+    )
 
 
 def test_refresh_rejects_non_minimal_scope_without_exposing_secrets(

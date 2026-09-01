@@ -33,10 +33,13 @@ def _read_secret_bytes(path: Path) -> bytes:
             metadata = os.fstat(descriptor)
             if not stat.S_ISREG(metadata.st_mode):
                 raise TokenError("secret path must be a regular file")
-            if metadata.st_uid != os.getuid():
-                raise TokenError("secret file must be owned by the current user")
-            if stat.S_IMODE(metadata.st_mode) & 0o077:
-                raise TokenError("secret file permissions must deny group and others")
+            if not _secret_permissions_allowed(
+                path,
+                owner_uid=metadata.st_uid,
+                mode=stat.S_IMODE(metadata.st_mode),
+                current_uid=os.getuid(),
+            ):
+                raise TokenError("secret file ownership or permissions are unsafe")
             value = os.read(descriptor, MAX_SECRET_BYTES + 1)
         finally:
             os.close(descriptor)
@@ -47,6 +50,19 @@ def _read_secret_bytes(path: Path) -> bytes:
     if len(value) > MAX_SECRET_BYTES:
         raise TokenError("secret file exceeds the size limit")
     return value
+
+
+def _secret_permissions_allowed(
+    path: Path, *, owner_uid: int, mode: int, current_uid: int
+) -> bool:
+    private_user_file = owner_uid == current_uid and mode & 0o077 == 0
+    container_secret = (
+        owner_uid == 0
+        and path.is_absolute()
+        and path.parts[:3] == ("/", "run", "secrets")
+        and mode & 0o022 == 0
+    )
+    return private_user_file or container_secret
 
 
 def read_secret_text(path: Path) -> str:

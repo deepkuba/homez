@@ -1,0 +1,16 @@
+{
+  admin off
+  email {$HOMEZ_ACME_EMAIL}
+}
+
+{$HOMEZ_DOMAIN} {
+  encode zstd gzip
+
+  handle /feedback/* {
+    reverse_proxy web:8000
+  }
+
+  handle {
+    respond 404
+  }
+}

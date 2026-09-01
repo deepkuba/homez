@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import os
 import subprocess
 from collections.abc import Callable
@@ -10,6 +11,9 @@ from pathlib import Path
 from secrets import token_bytes
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+from sqlalchemy.engine import make_url
+
+from homefinder.sources.gmail import TokenError, read_secret_text
 
 MAGIC = b"HOMEZ-BACKUP-1\0"
 Runner = Callable[..., subprocess.CompletedProcess[bytes]]
@@ -18,6 +22,15 @@ Runner = Callable[..., subprocess.CompletedProcess[bytes]]
 def _check_key(key: bytes) -> None:
     if len(key) not in {16, 24, 32}:
         raise ValueError("backup key must be 128, 192, or 256 bits")
+
+
+def load_backup_key(path: Path) -> bytes:
+    try:
+        key = base64.urlsafe_b64decode(read_secret_text(path).encode("ascii"))
+    except (TokenError, UnicodeError, ValueError) as error:
+        raise ValueError("backup key file is invalid") from error
+    _check_key(key)
+    return key
 
 
 def backup_database(
@@ -30,8 +43,10 @@ def backup_database(
 ) -> Path:
     _check_key(key)
     if database_url is not None:
+        command, environment = _postgres_command("pg_dump", database_url)
         result = runner(
-            ["pg_dump", "--format=custom", "--no-password", "--dbname", database_url],
+            [*command, "--format=custom"],
+            env=environment,
             capture_output=True,
             check=True,
         )
@@ -69,19 +84,39 @@ def restore_database(
     runner: Runner = subprocess.run,
 ) -> None:
     dump = decrypt_backup(path, key)
+    command, environment = _postgres_command("pg_restore", database_url)
     runner(
         [
-            "pg_restore",
+            *command,
             "--clean",
             "--if-exists",
-            "--no-password",
-            "--dbname",
-            database_url,
         ],
         input=dump,
+        env=environment,
         capture_output=True,
         check=True,
     )
+
+
+def _postgres_command(
+    program: str, database_url: str
+) -> tuple[list[str], dict[str, str]]:
+    parsed = make_url(database_url)
+    if not parsed.drivername.startswith("postgresql") or not parsed.database:
+        raise ValueError("backup requires a PostgreSQL database URL")
+    command = [program, "--no-password"]
+    for option, value in (
+        ("--host", parsed.host),
+        ("--port", str(parsed.port) if parsed.port is not None else None),
+        ("--username", parsed.username),
+        ("--dbname", parsed.database),
+    ):
+        if value:
+            command.extend((option, value))
+    environment = os.environ.copy()
+    if parsed.password is not None:
+        environment["PGPASSWORD"] = parsed.password
+    return command, environment
 
 
 def prune_backups(

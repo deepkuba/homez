@@ -1,3 +1,4 @@
+import base64
 import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -5,6 +6,7 @@ from pathlib import Path
 from homefinder.operations.backup import (
     backup_database,
     decrypt_backup,
+    load_backup_key,
     prune_backups,
     restore_database,
 )
@@ -78,32 +80,61 @@ def test_encrypted_backup_round_trip_and_pruning(tmp_path: Path) -> None:
 def test_database_backup_and_restore_use_argument_lists(tmp_path: Path) -> None:
     destination = tmp_path / "backup.dump.enc"
     key = b"0123456789abcdef0123456789abcdef"
-    calls: list[tuple[list[str], bytes | None]] = []
+    calls: list[tuple[list[str], bytes | None, dict[str, str]]] = []
 
-    def runner(command, *, input=None, capture_output, check):  # type: ignore[no-untyped-def]
-        calls.append((command, input))
+    def runner(  # type: ignore[no-untyped-def]
+        command, *, input=None, env, capture_output, check
+    ):
+        calls.append((command, input, env))
         if command[0] == "pg_dump":
             return type("Result", (), {"stdout": b"dump"})()
         return type("Result", (), {"stdout": b""})()
 
     backup_database(
-        None, destination, key, database_url="postgresql://db", runner=runner
+        None,
+        destination,
+        key,
+        database_url="postgresql://homefinder:private@db/homefinder",
+        runner=runner,
     )
-    restore_database(destination, key, database_url="postgresql://db", runner=runner)
+    restore_database(
+        destination,
+        key,
+        database_url="postgresql://homefinder:private@db/homefinder",
+        runner=runner,
+    )
 
     assert calls[0][0] == [
         "pg_dump",
-        "--format=custom",
         "--no-password",
+        "--host",
+        "db",
+        "--username",
+        "homefinder",
         "--dbname",
-        "postgresql://db",
+        "homefinder",
+        "--format=custom",
     ]
     assert calls[1][0] == [
         "pg_restore",
+        "--no-password",
+        "--host",
+        "db",
+        "--username",
+        "homefinder",
+        "--dbname",
+        "homefinder",
         "--clean",
         "--if-exists",
-        "--no-password",
-        "--dbname",
-        "postgresql://db",
     ]
     assert calls[1][1] == b"dump"
+    assert all("private" not in argument for call in calls for argument in call[0])
+    assert calls[0][2]["PGPASSWORD"] == "private"
+
+
+def test_backup_key_loads_from_private_file(tmp_path: Path) -> None:
+    path = tmp_path / "backup-key"
+    path.write_text(base64.urlsafe_b64encode(b"k" * 32).decode(), encoding="ascii")
+    path.chmod(0o600)
+
+    assert load_backup_key(path) == b"k" * 32

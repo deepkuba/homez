@@ -1,10 +1,10 @@
 import argparse
-import base64
 import json
 from collections.abc import Callable, Sequence
 from datetime import datetime, timedelta, timezone
 from functools import partial
 from pathlib import Path
+from threading import Event
 from uuid import UUID
 
 from sqlalchemy import create_engine, select
@@ -25,8 +25,14 @@ from homefinder.digest.delivery import (
 from homefinder.digest.feedback import SqlAlchemyFeedbackService, private_feedback_url
 from homefinder.operations.backup import (
     backup_database,
+    load_backup_key,
     prune_backups,
     restore_database,
+)
+from homefinder.runtime import (
+    heartbeat_is_fresh,
+    install_stop_signals,
+    run_periodically,
 )
 from homefinder.sources.gmail import (
     EncryptedTokenStore,
@@ -62,18 +68,10 @@ def _parser() -> argparse.ArgumentParser:
     )
     backup = commands.add_parser("backup", help="create an encrypted PostgreSQL backup")
     backup.add_argument("destination", type=Path)
-    backup.add_argument("--database-url", required=True)
-    backup.add_argument(
-        "--encryption-key", required=True, help="base64 encoded AES key"
-    )
     restore = commands.add_parser(
         "restore", help="restore an encrypted PostgreSQL backup"
     )
     restore.add_argument("backup", type=Path)
-    restore.add_argument("--database-url", required=True)
-    restore.add_argument(
-        "--encryption-key", required=True, help="base64 encoded AES key"
-    )
     prune = commands.add_parser(
         "prune-backups", help="remove expired encrypted backups"
     )
@@ -107,29 +105,67 @@ def _parser() -> argparse.ArgumentParser:
         "delivery-worker", help="send claimed delivery outbox records"
     )
     delivery.add_argument("--max-deliveries", type=int, default=10)
+    runtime_workflow = commands.add_parser(
+        "runtime-workflow", help="run the persistent workflow worker"
+    )
+    runtime_workflow.add_argument("--worker-id", required=True)
+    runtime_workflow.add_argument("--interval-seconds", type=float, default=5)
+    runtime_workflow.add_argument("--max-jobs", type=int, default=100)
+    runtime_workflow.add_argument("--heartbeat-file", required=True, type=Path)
+    runtime_scheduler = commands.add_parser(
+        "runtime-scheduler", help="enqueue idempotent periodic workflow work"
+    )
+    runtime_scheduler.add_argument("--interval-seconds", type=float, default=60)
+    runtime_scheduler.add_argument("--heartbeat-file", required=True, type=Path)
+    runtime_delivery = commands.add_parser(
+        "runtime-delivery", help="run the persistent delivery worker"
+    )
+    runtime_delivery.add_argument("--interval-seconds", type=float, default=5)
+    runtime_delivery.add_argument("--max-deliveries", type=int, default=10)
+    runtime_delivery.add_argument("--heartbeat-file", required=True, type=Path)
+    runtime_health = commands.add_parser(
+        "runtime-health", help="check a container runtime heartbeat"
+    )
+    runtime_health.add_argument("--heartbeat-file", required=True, type=Path)
+    runtime_health.add_argument("--max-age-seconds", type=float, required=True)
     return parser
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
+    if args.command in {"backup", "restore"}:
+        settings = Settings()
+        if settings.backup_key_file is None:
+            raise SystemExit("backup key secret file is required")
+        key = load_backup_key(settings.backup_key_file)
+        database_url = settings.database_url.get_secret_value()
     if args.command == "backup":
         backup_database(
             None,
             args.destination,
-            base64.urlsafe_b64decode(args.encryption_key),
-            database_url=args.database_url,
+            key,
+            database_url=database_url,
         )
         return 0
     if args.command == "restore":
         restore_database(
             args.backup,
-            base64.urlsafe_b64decode(args.encryption_key),
-            database_url=args.database_url,
+            key,
+            database_url=database_url,
         )
         return 0
     if args.command == "prune-backups":
         for path in prune_backups(args.directory, keep_days=args.keep_days):
             print(path)
+        return 0
+    if args.command == "runtime-health":
+        return not heartbeat_is_fresh(
+            args.heartbeat_file,
+            now=datetime.now(timezone.utc),
+            max_age=timedelta(seconds=args.max_age_seconds),
+        )
+    if args.command.startswith("runtime-"):
+        _run_container_runtime(Settings(), args)
         return 0
     if args.command in {"schedule-delivery", "delivery-worker"}:
         settings = Settings()
@@ -389,6 +425,77 @@ def _mail_transport(settings: Settings) -> HttpMailTransport:
         allowed_host=settings.mail_api_host,
         token_file=settings.mail_api_token_file,
         sender=settings.mail_sender,
+    )
+
+
+def _run_container_runtime(settings: Settings, args: argparse.Namespace) -> None:
+    engine = create_engine(settings.database_url.get_secret_value())
+    sessions = sessionmaker(engine, expire_on_commit=False)
+    if args.command == "runtime-workflow":
+        workflow = WorkflowService(sessions, pollers=_gmail_pollers(settings))
+
+        def action(now: datetime) -> None:
+            workflow.reconcile_catalog(now=now)
+            workflow.run_until_idle(
+                worker_id=args.worker_id, now=now, max_jobs=args.max_jobs
+            )
+
+    elif args.command == "runtime-scheduler":
+        workflow = WorkflowService(sessions)
+        outbox = DeliveryOutbox(sessions)
+
+        def action(now: datetime) -> None:
+            for source in ("otodom", "morizon", "gratka"):
+                workflow.enqueue_poll(source_key=source, scheduled_at=now)
+            workflow.reconcile_catalog(now=now)
+            period = FridayScheduler.most_recent_due_period(now)
+            scheduled_at = FridayScheduler.scheduled_at(period)
+            workflow.enqueue_report(
+                period=period,
+                cutoff_at=scheduled_at,
+                routing_goal_version=1,
+            )
+            if settings.report_recipient_file is None:
+                raise RuntimeError("report recipient secret file is required")
+            with sessions() as session:
+                report = session.scalar(
+                    select(ReportDraftRecord)
+                    .where(
+                        ReportDraftRecord.period == period,
+                        ReportDraftRecord.status == "prepared",
+                    )
+                    .order_by(ReportDraftRecord.prepared_at.desc())
+                )
+            if report is not None:
+                outbox.enqueue(
+                    period=period,
+                    report_id=str(report.id),
+                    recipient=read_secret_text(settings.report_recipient_file),
+                    render_version=report.render_version,
+                    now=now,
+                )
+
+    else:
+        outbox = DeliveryOutbox(sessions)
+        worker = DeliveryWorker(
+            sessions,
+            outbox,
+            _mail_transport(settings),
+            feedback_links=_feedback_links(settings, sessions),
+        )
+
+        def action(now: datetime) -> None:
+            delivered = 0
+            while delivered < args.max_deliveries and worker.run_once(now=now):
+                delivered += 1
+
+    stop = Event()
+    install_stop_signals(stop)
+    run_periodically(
+        action,
+        interval_seconds=args.interval_seconds,
+        heartbeat_file=args.heartbeat_file,
+        stop=stop,
     )
 
 

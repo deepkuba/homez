@@ -1,30 +1,40 @@
-services:
-  app:
-    image: "${HOMEZ_IMAGE:-ghcr.io/deepkuba/homez}:${HOMEZ_IMAGE_TAG:-main}"
-    restart: unless-stopped
-    depends_on:
-      db:
-        condition: service_healthy
-    environment:
-      HOMEFINDER_ENVIRONMENT: "${HOMEFINDER_ENVIRONMENT:-production}"
-      HOMEFINDER_DATABASE_URL: "postgresql+psycopg://homefinder:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@db:5432/homefinder"
-    read_only: true
-    tmpfs:
-      - /tmp:size=16m,mode=1777
-    security_opt:
-      - no-new-privileges:true
-    cap_drop:
-      - ALL
-    networks:
-      - backend
+x-app-service: &app-service
+  image: >-
+    ${HOMEZ_IMAGE:?set image}:${HOMEZ_IMAGE_TAG:?set tag}
+  user: "10001:10001"
+  init: true
+  read_only: true
+  tmpfs:
+    - /tmp:size=16m,mode=1777
+    - /run/homefinder:size=4m,mode=0700,uid=10001,gid=10001
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+  stop_grace_period: 30s
+  pids_limit: 128
+  mem_limit: 512m
+  cpus: 1.0
+  environment: &app-environment
+    HOMEFINDER_ENVIRONMENT: production
+    HOMEFINDER_DATABASE_URL_FILE: /run/secrets/database_url
 
+x-runtime-health: &runtime-health
+  interval: 30s
+  timeout: 5s
+  start_period: 30s
+  retries: 3
+
+services:
   db:
     image: postgis/postgis:17-3.5-alpine
     restart: unless-stopped
     environment:
       POSTGRES_DB: homefinder
       POSTGRES_USER: homefinder
-      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}"
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    secrets:
+      - postgres_password
     volumes:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:
@@ -34,12 +44,248 @@ services:
       retries: 5
     security_opt:
       - no-new-privileges:true
+    pids_limit: 256
+    mem_limit: 1g
+    cpus: 2.0
     networks:
       - backend
 
+  migrate:
+    <<: *app-service
+    command: ["alembic", "upgrade", "head"]
+    restart: "no"
+    healthcheck:
+      disable: true
+    depends_on:
+      db:
+        condition: service_healthy
+    secrets:
+      - database_url
+    networks:
+      - backend
+
+  web:
+    <<: *app-service
+    restart: unless-stopped
+    environment:
+      <<: *app-environment
+      HOMEFINDER_FEEDBACK_RATE_SALT_FILE: /run/secrets/feedback_rate_salt
+      HOMEFINDER_ADMIN_BEARER_TOKEN_FILE: /run/secrets/admin_bearer_token
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    secrets:
+      - database_url
+      - feedback_rate_salt
+      - admin_bearer_token
+    networks:
+      - backend
+      - frontend
+
+  workflow-worker:
+    <<: *app-service
+    command:
+      - homefinder
+      - runtime-workflow
+      - --worker-id
+      - compose-workflow
+      - --heartbeat-file
+      - /run/homefinder/heartbeat
+    restart: unless-stopped
+    environment:
+      <<: *app-environment
+      HOMEFINDER_GMAIL_TOKEN_FILE: /var/lib/homefinder/gmail-token.json
+      HOMEFINDER_GMAIL_TOKEN_KEY_FILE: /run/secrets/gmail_token_key
+      HOMEFINDER_GMAIL_SOURCE_POLICY_FILE: /etc/homefinder/source-policy.json
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    secrets:
+      - database_url
+      - gmail_token_key
+    volumes:
+      - type: bind
+        source: "${HOMEZ_STATE_DIR:?set HOMEZ_STATE_DIR}/gmail-token.json"
+        target: /var/lib/homefinder/gmail-token.json
+      - type: bind
+        source: "${HOMEZ_CONFIG_DIR:?set HOMEZ_CONFIG_DIR}/source-policy.json"
+        target: /etc/homefinder/source-policy.json
+        read_only: true
+    healthcheck:
+      <<: *runtime-health
+      test:
+        - CMD
+        - homefinder
+        - runtime-health
+        - --heartbeat-file
+        - /run/homefinder/heartbeat
+        - --max-age-seconds
+        - "120"
+    networks:
+      - backend
+
+  scheduler:
+    <<: *app-service
+    command:
+      - homefinder
+      - runtime-scheduler
+      - --heartbeat-file
+      - /run/homefinder/heartbeat
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    secrets:
+      - database_url
+      - report_recipient
+    environment:
+      <<: *app-environment
+      HOMEFINDER_REPORT_RECIPIENT_FILE: /run/secrets/report_recipient
+    healthcheck:
+      <<: *runtime-health
+      test:
+        - CMD
+        - homefinder
+        - runtime-health
+        - --heartbeat-file
+        - /run/homefinder/heartbeat
+        - --max-age-seconds
+        - "180"
+    networks:
+      - backend
+
+  delivery-worker:
+    <<: *app-service
+    command:
+      - homefinder
+      - runtime-delivery
+      - --heartbeat-file
+      - /run/homefinder/heartbeat
+    restart: unless-stopped
+    environment:
+      <<: *app-environment
+      HOMEFINDER_REPORT_RECIPIENT_FILE: /run/secrets/report_recipient
+      HOMEFINDER_MAIL_API_TOKEN_FILE: /run/secrets/mail_api_token
+      HOMEFINDER_MAIL_API_ENDPOINT: >-
+        ${HOMEFINDER_MAIL_API_ENDPOINT:?set mail endpoint}
+      HOMEFINDER_MAIL_API_HOST: "${HOMEFINDER_MAIL_API_HOST:?set mail host}"
+      HOMEFINDER_MAIL_SENDER: "${HOMEFINDER_MAIL_SENDER:?set mail sender}"
+      HOMEFINDER_FEEDBACK_BASE_URL: >-
+        https://${HOMEZ_DOMAIN:?set HOMEZ_DOMAIN}/feedback
+      HOMEFINDER_FEEDBACK_TOKEN_KEY_FILE: /run/secrets/feedback_token_key
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    secrets:
+      - database_url
+      - report_recipient
+      - mail_api_token
+      - feedback_token_key
+    healthcheck:
+      <<: *runtime-health
+      test:
+        - CMD
+        - homefinder
+        - runtime-health
+        - --heartbeat-file
+        - /run/homefinder/heartbeat
+        - --max-age-seconds
+        - "120"
+    networks:
+      - backend
+
+  backup:
+    <<: *app-service
+    profiles: ["operations"]
+    command:
+      - homefinder
+      - backup
+      - /var/backups/homefinder/manual.dump.enc
+    restart: "no"
+    healthcheck:
+      disable: true
+    environment:
+      <<: *app-environment
+      HOMEFINDER_BACKUP_KEY_FILE: /run/secrets/backup_key
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    secrets:
+      - database_url
+      - backup_key
+    volumes:
+      - backup-staging:/var/backups/homefinder
+    networks:
+      - backend
+
+  ingress:
+    image: caddy:2.10.2-alpine
+    restart: unless-stopped
+    init: true
+    depends_on:
+      web:
+        condition: service_healthy
+    environment:
+      HOMEZ_DOMAIN: "${HOMEZ_DOMAIN:?set HOMEZ_DOMAIN}"
+      HOMEZ_ACME_EMAIL: "${HOMEZ_ACME_EMAIL:?set HOMEZ_ACME_EMAIL}"
+    ports:
+      - "80:80"
+      - "443:443"
+    read_only: true
+    tmpfs:
+      - /config:size=8m,mode=0700
+      - /tmp:size=8m,mode=1777
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    pids_limit: 128
+    mem_limit: 256m
+    cpus: 0.5
+    networks:
+      - frontend
+
 networks:
+  frontend:
   backend:
     internal: true
 
 volumes:
   postgres-data:
+  caddy-data:
+  backup-staging:
+
+secrets:
+  database_url:
+    file: "${HOMEZ_SECRETS_DIR:?set HOMEZ_SECRETS_DIR}/database-url"
+  postgres_password:
+    file: "${HOMEZ_SECRETS_DIR:?set HOMEZ_SECRETS_DIR}/postgres-password"
+  gmail_token_key:
+    file: "${HOMEZ_SECRETS_DIR:?set HOMEZ_SECRETS_DIR}/gmail-token-key"
+  report_recipient:
+    file: "${HOMEZ_SECRETS_DIR:?set HOMEZ_SECRETS_DIR}/report-recipient"
+  mail_api_token:
+    file: "${HOMEZ_SECRETS_DIR:?set HOMEZ_SECRETS_DIR}/mail-api-token"
+  feedback_token_key:
+    file: "${HOMEZ_SECRETS_DIR:?set HOMEZ_SECRETS_DIR}/feedback-token-key"
+  feedback_rate_salt:
+    file: "${HOMEZ_SECRETS_DIR:?set HOMEZ_SECRETS_DIR}/feedback-rate-salt"
+  admin_bearer_token:
+    file: "${HOMEZ_SECRETS_DIR:?set HOMEZ_SECRETS_DIR}/admin-bearer-token"
+  backup_key:
+    file: "${HOMEZ_SECRETS_DIR:?set HOMEZ_SECRETS_DIR}/backup-key"

@@ -9,6 +9,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import ArgumentError
 
+from homefinder.sources.gmail import read_secret_text
+
 
 class Environment(str, Enum):
     DEVELOPMENT = "development"
@@ -30,6 +32,7 @@ class Settings(BaseSettings):
 
     environment: Environment = Environment.DEVELOPMENT
     database_url: SecretStr = SecretStr("sqlite:///homefinder-preview.db")
+    database_url_file: Path | None = None
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
     gmail_token_file: Path | None = None
     gmail_token_key_file: Path | None = None
@@ -44,9 +47,16 @@ class Settings(BaseSettings):
     feedback_token_key_file: Path | None = None
     feedback_rate_salt_file: Path | None = None
     admin_bearer_token_file: Path | None = None
+    backup_key_file: Path | None = None
 
     @model_validator(mode="after")
     def validate_database(self) -> Settings:
+        if self.database_url_file is not None:
+            object.__setattr__(
+                self,
+                "database_url",
+                SecretStr(read_secret_text(self.database_url_file)),
+            )
         raw_url = self.database_url.get_secret_value()
         try:
             parsed_url = make_url(raw_url)

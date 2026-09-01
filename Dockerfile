@@ -10,11 +10,26 @@ RUN python -m pip wheel --constraint requirements.lock --wheel-dir /wheels .
 
 FROM python:3.14.7-slim-bookworm AS runtime
 
+ARG POSTGRESQL_CLIENT_VERSION=17.11-1.pgdg12+2
+
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PATH="/opt/venv/bin:$PATH"
 
-RUN groupadd --system --gid 10001 homefinder \
+RUN apt-get update \
+    && apt-get install --yes --no-install-recommends ca-certificates curl \
+    && install -d /usr/share/postgresql-common/pgdg \
+    && curl --fail --show-error --silent \
+      --output /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \
+      https://www.postgresql.org/media/keys/ACCC4CF8.asc \
+    && echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt bookworm-pgdg main" \
+      > /etc/apt/sources.list.d/pgdg.list \
+    && apt-get update \
+    && apt-get install --yes --no-install-recommends \
+      "postgresql-client-17=${POSTGRESQL_CLIENT_VERSION}" \
+    && apt-get purge --yes --auto-remove curl \
+    && rm -rf /var/lib/apt/lists/* \
+    && groupadd --system --gid 10001 homefinder \
     && useradd --system --uid 10001 --gid homefinder --home-dir /app homefinder \
     && python -m venv /opt/venv
 

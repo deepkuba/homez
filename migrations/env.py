@@ -1,18 +1,25 @@
 import os
 from logging.config import fileConfig
+from pathlib import Path
 
 from alembic import context
 from sqlalchemy import engine_from_config, pool
 
 from homefinder.catalog.orm import Base
+from homefinder.sources.gmail import read_secret_text
 
 config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-database_url = os.environ.get(
-    "HOMEFINDER_DATABASE_URL",
-    os.environ.get("DATABASE_URL", "sqlite:///homefinder-preview.db"),
+database_url_file = os.environ.get("HOMEFINDER_DATABASE_URL_FILE")
+database_url = (
+    read_secret_text(Path(database_url_file))
+    if database_url_file
+    else os.environ.get(
+        "HOMEFINDER_DATABASE_URL",
+        os.environ.get("DATABASE_URL", "sqlite:///homefinder-preview.db"),
+    )
 )
 config.set_main_option("sqlalchemy.url", database_url.replace("%", "%%"))
 target_metadata = Base.metadata

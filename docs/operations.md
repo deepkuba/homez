@@ -19,9 +19,9 @@ database and NAS:
 
 ```bash
 openssl rand -base64 32
-homefinder backup /var/backups/homefinder/$(date -u +%Y%m%dT%H%M%SZ).dump.enc \
-  --database-url "$HOMEFINDER_DATABASE_URL" \
-  --encryption-key "$HOMEFINDER_BACKUP_KEY"
+HOMEFINDER_DATABASE_URL_FILE=/run/secrets/database_url \
+HOMEFINDER_BACKUP_KEY_FILE=/run/secrets/backup_key \
+homefinder backup /var/backups/homefinder/$(date -u +%Y%m%dT%H%M%SZ).dump.enc
 ```
 
 This invokes `pg_dump` without a shell, encrypts the custom-format dump with
@@ -31,9 +31,9 @@ encrypted file to the restricted NAS account only after infrastructure approval.
 Restore into a clean or explicitly disposable database:
 
 ```bash
-homefinder restore /var/backups/homefinder/backup.dump.enc \
-  --database-url "$TEST_RESTORE_DATABASE_URL" \
-  --encryption-key "$HOMEFINDER_BACKUP_KEY"
+HOMEFINDER_DATABASE_URL_FILE=/run/secrets/test_restore_database_url \
+HOMEFINDER_BACKUP_KEY_FILE=/run/secrets/backup_key \
+homefinder restore /var/backups/homefinder/backup.dump.enc
 ```
 
 Retention removes only `*.dump.enc` files older than the selected period:
