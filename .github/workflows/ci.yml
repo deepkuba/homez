@@ -186,7 +186,8 @@ jobs:
               compose = json.load(stream)
 
           services = compose["services"]
-          assert services["ingress"]["profiles"] == ["standalone-ingress"]
+          # Compose v2 omits services behind inactive profiles from this model.
+          assert "ingress" not in services
           active_ports = {
               name: service.get("ports", [])
               for name, service in services.items()

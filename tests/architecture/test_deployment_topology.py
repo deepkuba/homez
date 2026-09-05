@@ -97,6 +97,13 @@ def test_shared_vps_override_exposes_only_loopback_web() -> None:
     ]
 
 
+def test_ci_checks_default_shared_model_omits_profiled_ingress() -> None:
+    workflow = Path(".github/workflows/ci.yml").read_text(encoding="utf-8")
+
+    assert 'assert "ingress" not in services' in workflow
+    assert 'services["ingress"]["profiles"]' not in workflow
+
+
 def test_runtime_image_contains_matching_postgresql_client() -> None:
     dockerfile = Path("Dockerfile").read_text(encoding="utf-8")
 
