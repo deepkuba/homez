@@ -43,7 +43,8 @@ jobs:
           pip-audit --requirement requirements.lock --no-deps --disable-pip
       - run: >-
           yamllint -d relaxed
-          .github/workflows .github/dependabot.yml infra/compose.yaml
+          .github/workflows .github/dependabot.yml
+          infra/compose.yaml infra/compose.shared-vps.yaml
       - name: Upload unit evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -126,9 +127,12 @@ jobs:
           export HOMEZ_IMAGE_TAG=test
           export HOMEZ_DOMAIN=localhost
           export HOMEZ_ACME_EMAIL=owner@example.com
-          export HOMEFINDER_MAIL_API_ENDPOINT=https://mail.example.com/send
-          export HOMEFINDER_MAIL_API_HOST=mail.example.com
-          export HOMEFINDER_MAIL_SENDER=sender@example.com
+          export HOMEZ_FRONTEND_SUBNET=172.30.138.0/28
+          export HOMEZ_TRUSTED_PROXY_IP=172.30.138.1
+          export HOMEFINDER_MAIL_API_ENDPOINT=\
+          https://sandbox.api.mailtrap.io/api/send/4015
+          export HOMEFINDER_MAIL_API_HOST=sandbox.api.mailtrap.io
+          export HOMEFINDER_MAIL_SENDER=sender@example.invalid
           export HOMEZ_SECRETS_DIR="$RUNNER_TEMP/homez-secrets"
           export HOMEZ_CONFIG_DIR="$RUNNER_TEMP/homez-config"
           export HOMEZ_STATE_DIR="$RUNNER_TEMP/homez-state"
@@ -162,11 +166,46 @@ jobs:
           compose() {
             docker compose --project-name homez-ci -f infra/compose.yaml "$@"
           }
+          shared_compose() {
+            docker compose --project-name homez-shared-ci \
+              -f infra/compose.yaml \
+              -f infra/compose.shared-vps.yaml "$@"
+          }
           cleanup() {
             compose down --volumes --remove-orphans
           }
           trap cleanup EXIT
           compose config > "$RUNNER_TEMP/homez-compose.rendered"
+          shared_compose config --format json > \
+            "$RUNNER_TEMP/homez-shared-compose.json"
+          python - "$RUNNER_TEMP/homez-shared-compose.json" <<'PY'
+          import json
+          import sys
+
+          with open(sys.argv[1], encoding="utf-8") as stream:
+              compose = json.load(stream)
+
+          services = compose["services"]
+          assert services["ingress"]["profiles"] == ["standalone-ingress"]
+          active_ports = {
+              name: service.get("ports", [])
+              for name, service in services.items()
+              if not service.get("profiles") and service.get("ports")
+          }
+          assert set(active_ports) == {"web"}
+          assert len(active_ports["web"]) == 1
+          port = active_ports["web"][0]
+          assert port["target"] == 8000
+          assert port["published"] == "18000"
+          assert port["protocol"] == "tcp"
+          assert port["host_ip"] == "127.0.0.1"
+          gateway = compose["networks"]["frontend"]["ipam"]["config"][0][
+              "gateway"
+          ]
+          command = services["web"]["command"]
+          trusted_index = command.index("--forwarded-allow-ips") + 1
+          assert command[trusted_index] == gateway
+          PY
           ! grep -F 'fake-compose-password' \
             "$RUNNER_TEMP/homez-compose.rendered"
           ! grep -F 'fake-mail-token' "$RUNNER_TEMP/homez-compose.rendered"

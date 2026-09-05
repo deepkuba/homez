@@ -127,6 +127,7 @@ services:
         - "120"
     networks:
       - backend
+      - egress
 
   scheduler:
     <<: *app-service
@@ -201,6 +202,7 @@ services:
         - "120"
     networks:
       - backend
+      - egress
 
   backup:
     <<: *app-service
@@ -264,6 +266,8 @@ networks:
   frontend:
   backend:
     internal: true
+  egress:
+    driver: bridge
 
 volumes:
   postgres-data:

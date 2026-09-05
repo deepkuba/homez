@@ -94,8 +94,8 @@ HOMEFINDER_GMAIL_SOURCE_POLICY_FILE=/run/secrets/homefinder_source_policy \
 .venv/bin/homefinder poll-gmail --source otodom
 ```
 
-The policy file contains a `sources` object keyed by portal, with `enabled`, one
-reviewed `allowed_senders` address, one `allowed_hosts` listing host, and an
+The policy file contains a `sources` object keyed by portal, with `enabled`,
+reviewed `allowed_senders` addresses, direct-listing `allowed_hosts`, and an
 optional `max_message_bytes`. The command resolves/creates mailbox-scoped alert,
 processed, quarantine, and retry labels and persists Gmail's actual label IDs.
 Expired access tokens refresh automatically without logging credentials. Only
@@ -108,10 +108,10 @@ reviewed sandbox poll confirming unrelated mail is untouched. Revoke the OAuth
 grant and recreate the encrypted token if either credential file may have been
 exposed.
 
-Sanitized parser contracts for Otodom, Morizon, and Gratka are documented in
-[`portal-contracts.md`](real-estate-assistant/portal-contracts.md). OLX remains
-explicitly blocked on human fixture issues #17 and #18. These contracts do not
-enable a production source or page fetching.
+Sanitized parser contracts for Otodom, Morizon, Gratka, and OLX are documented in
+[`portal-contracts.md`](real-estate-assistant/portal-contracts.md). Sender
+allowlists—not a private source header—select the source. These contracts do not
+enable page fetching.
 
 ## Migrations
 
@@ -192,18 +192,24 @@ prepared drafts with a fenced token, retries
 only pre-acknowledgement failures, and reuses a stable provider idempotency key
 after stale-claim recovery. `schedule-delivery` calculates the most recent due
 Friday 10:00 `Europe/Warsaw` period, including DST and delayed recovery;
-`delivery-worker` sends through an approved HTTPS provider that acknowledges a
-message ID. Configure only secret-file paths for the recipient and provider
-token. Do not put feedback URLs in shared content.
+`delivery-worker` sends through Mailtrap's HTTPS API and requires a successful
+response containing exactly one provider message ID. Configure only secret-file
+paths for the recipient and provider token. Do not put feedback URLs in shared
+content. The adapter supports the Mailtrap sandbox and transactional production
+endpoint shapes, records the stable delivery key as a Mailtrap custom variable,
+and rejects other endpoint hosts or paths.
 
 ```bash
 homefinder schedule-delivery
 homefinder delivery-worker --max-deliveries 10
 ```
 
-The provider must honor the `Idempotency-Key` header. The recipient remains
-blocked on human task #33 and live delivery remains blocked on #69. Test-inbox
-HTML/plain rendering evidence must be recorded before activation.
+Homez also sends the stable key in `Idempotency-Key`, but Mailtrap does not
+currently document that the header deduplicates requests. Ambiguous timeout
+retries can therefore duplicate a message. The recipient remains blocked on
+human task #33 and live delivery remains blocked on #69 plus explicit acceptance
+or mitigation of this residual risk. Test-inbox HTML/plain rendering evidence
+must be recorded before activation.
 
 ## Environmental and building enrichment
 

@@ -33,7 +33,14 @@ class AlertIngestionService:
 
     @property
     def expected_sender(self) -> str:
-        return self._parser.expected_sender
+        return sorted(self.expected_senders)[0]
+
+    @property
+    def expected_senders(self) -> frozenset[str]:
+        senders = getattr(self._parser, "allowed_senders", None)
+        if senders is not None:
+            return frozenset(senders)
+        return frozenset({self._parser.expected_sender})
 
     @property
     def max_message_bytes(self) -> int:
@@ -41,7 +48,14 @@ class AlertIngestionService:
 
     @property
     def expected_host(self) -> str:
-        return self._parser.expected_host
+        return sorted(self.expected_hosts)[0]
+
+    @property
+    def expected_hosts(self) -> frozenset[str]:
+        hosts = getattr(self._parser, "allowed_hosts", None)
+        if hosts is not None:
+            return frozenset(hosts)
+        return frozenset({self._parser.expected_host})
 
     def ingest(self, raw_message: bytes) -> IngestionResult:
         parsed = self._parser.parse(raw_message)

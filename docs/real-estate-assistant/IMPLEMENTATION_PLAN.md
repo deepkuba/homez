@@ -183,7 +183,7 @@ container health checks using fake credentials.
 
 **Status:** Completed 30 August 2026 with a synthetic fixture using reserved
 `.invalid` domains. Minimal sanitized contract examples now cover Otodom,
-Morizon, and Gratka; the OLX fixture remains blocked on buyer input.
+Morizon, Gratka, and OLX.
 
 **Coding agent:** implement email-message, listing, snapshot, source, and property-
 candidate models; parse one sanitized alert fixture; normalize it; render a local
@@ -210,11 +210,11 @@ Gmail REST API; `EncryptedTokenStore` stores OAuth token JSON using AES-GCM; and
 `GmailPollingService` polls a configured label, ingests by immutable provider
 message ID, applies processed/quarantine labels, preserves malformed raw mail,
 records per-source health, and leaves transient failures available for retry.
-The `poll-gmail` CLI currently registers only the synthetic sample source, whose
-page-fetch policy is disabled. Strict `sanitized-email-v1` contracts cover the
-approved Otodom, Morizon, and Gratka examples without registering them in the
-production CLI. OLX remains blocked on #17/#18, and page retrieval still requires
-separate approval.
+The `poll-gmail` CLI registers governed `portal-email-v3` parsers for Otodom,
+Morizon, Gratka, and OLX. Each uses configured sender and direct-listing-host
+allowlists, with page fetching disabled. The fixtures remain synthetic; live
+activation requires representative sanitized layout samples and a reviewed
+sandbox poll. Page retrieval still requires separate approval.
 
 **Buyer required:** create dedicated Gmail and portal accounts, enable 2FA, create
 saved searches, complete one-time OAuth consent, and approve each source's access
@@ -314,9 +314,9 @@ reports remaining quota and the oldest pending route.
 
 ### Slice 6 — Digest, safe sharing, and feedback loop
 
-**Status:** Implemented 31 August 2026 with deterministic rendering, delivery,
-and feedback tests. SMTP/provider wiring, a persistent delivery worker, and
-real-device preview remain buyer/deployment prerequisites.
+**Status:** Implemented with deterministic rendering, persistent delivery,
+feedback tests, and Mailtrap sandbox/transactional API wiring. A reviewed
+sandbox send and real-device preview remain buyer/deployment prerequisites.
 
 **Coding agent:** responsive HTML/plain-text templates, Friday scheduling,
 idempotent delivery, 10+10 sections, share-safe `mailto`/copy content, token model,
@@ -334,9 +334,10 @@ details; Friday 10:00 Europe/Warsaw due-window logic; retryable period-level
 delivery idempotency; hashed, expiring, report/listing-scoped single-use
 tokens; POST-only feedback with CSRF comparison and rate limiting; a minimal
 feedback endpoint; and the `digest_deliveries`, `feedback_tokens`, and
-`feedback_events` migration tables. Delivery and token ledgers are currently
-in-memory services for fixture/test use; production wiring must use the tables
-and a real mail sender before live delivery.
+`feedback_events` migration tables. Production uses the persistent delivery and
+feedback repositories plus the Mailtrap API adapter. Mailtrap's undocumented
+handling of `Idempotency-Key` leaves ambiguous-timeout duplicate risk that must
+be accepted or mitigated before live delivery.
 
 **First usable release:** enable weekly delivery after Slices 0-6 and a buyer-
 approved shadow report. Do not wait for every enrichment below.

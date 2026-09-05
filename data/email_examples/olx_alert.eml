@@ -1,0 +1,44 @@
+Message-ID: <olx-alert-001@example.com>
+Date: Sat, 05 Sep 2026 12:00:00 +0200
+From: OLX Example Alerts <alerts@example.com>
+To: email@example.com
+Subject: Example OLX saved-search alert
+MIME-Version: 1.0
+Content-Type: multipart/alternative; boundary="homez-olx-example"
+
+--homez-olx-example
+Content-Type: text/plain; charset="utf-8"
+Content-Transfer-Encoding: 7bit
+
+New example listings match your saved filters.
+
+Example two-room apartment
+700000 PLN | 50 m2 | 2 rooms | Example District
+https://example.com/listings/olx-example-001
+
+--homez-olx-example
+Content-Type: text/html; charset="utf-8"
+Content-Transfer-Encoding: 7bit
+
+<!doctype html>
+<html lang="en">
+  <body>
+    <table role="presentation">
+      <tr>
+        <td>
+          <h1>New example listings match your saved filters</h1>
+          <article data-listing-id="olx-example-001">
+            <h2 data-field="title">Example two-room apartment</h2>
+            <a data-field="url" href="https://example.com/listings/olx-example-001">View example listing</a>
+            <span data-field="price">700000 PLN</span>
+            <span data-field="area">50 m2</span>
+            <span data-field="rooms">2</span>
+            <span data-field="location">Example District</span>
+          </article>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>
+
+--homez-olx-example--

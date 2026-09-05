@@ -42,6 +42,13 @@ def test_compose_defines_least_privilege_runtime_topology() -> None:
     assert services["ingress"]["ports"] == ["80:80", "443:443"]
     assert "ports" not in services["db"]
     assert compose["networks"]["backend"]["internal"] is True
+    assert "internal" not in compose["networks"]["egress"]
+    assert set(services["workflow-worker"]["networks"]) == {"backend", "egress"}
+    assert set(services["delivery-worker"]["networks"]) == {"backend", "egress"}
+    assert "egress" not in services["db"]["networks"]
+    assert "egress" not in services["web"]["networks"]
+    assert "ports" not in services["workflow-worker"]
+    assert "ports" not in services["delivery-worker"]
     assert "backend" not in services["ingress"]["networks"]
     assert set(compose["secrets"]) >= {
         "database_url",
@@ -64,6 +71,30 @@ def test_ingress_exposes_feedback_only() -> None:
     assert "respond 404" in caddyfile
     assert "/corrections" not in caddyfile
     assert "/health" not in caddyfile
+
+
+def test_shared_vps_override_exposes_only_loopback_web() -> None:
+    override_path = Path("infra/compose.shared-vps.yaml")
+    raw = override_path.read_text(encoding="utf-8")
+    override = yaml.safe_load(raw)
+    services = override["services"]
+
+    assert services["ingress"]["profiles"] == ["standalone-ingress"]
+    assert services["web"]["ports"] == ["127.0.0.1:18000:8000"]
+    assert set(services) == {"ingress", "web"}
+    assert all(
+        "ports" not in service for name, service in services.items() if name != "web"
+    )
+    assert "${HOMEZ_TRUSTED_PROXY_IP:?set HOMEZ_TRUSTED_PROXY_IP}" in raw
+
+    frontend = override["networks"]["frontend"]
+    ipam = frontend["ipam"]["config"]
+    assert ipam == [
+        {
+            "subnet": "${HOMEZ_FRONTEND_SUBNET:?set HOMEZ_FRONTEND_SUBNET}",
+            "gateway": "${HOMEZ_TRUSTED_PROXY_IP:?set HOMEZ_TRUSTED_PROXY_IP}",
+        }
+    ]
 
 
 def test_runtime_image_contains_matching_postgresql_client() -> None:

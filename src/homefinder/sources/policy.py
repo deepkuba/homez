@@ -15,6 +15,8 @@ class SourcePolicy:
     def __post_init__(self) -> None:
         if self.max_message_bytes <= 0:
             raise ValueError("max_message_bytes must be positive")
+        if self.timeout_seconds <= 0:
+            raise ValueError("timeout_seconds must be positive")
 
     def allows_sender(self, sender: str) -> bool:
         return sender.casefold() in self.allowed_senders

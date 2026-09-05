@@ -1,3 +1,4 @@
+import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from uuid import uuid4
@@ -12,9 +13,9 @@ from homefinder.digest.delivery import (
     DeliveryState,
     DeliveryWorker,
     FridayScheduler,
-    HttpMailTransport,
     MailAcknowledgement,
     MailTransport,
+    MailtrapApiTransport,
 )
 
 NOW = datetime(2026, 9, 4, 8, tzinfo=timezone.utc)
@@ -183,7 +184,7 @@ def test_delivery_adds_private_links_only_to_html(tmp_path: Path) -> None:
     assert transport.text_bodies == ["safe share text"]
 
 
-def test_http_transport_requires_approved_https_host_and_returns_ack(
+def test_mailtrap_transport_sends_provider_contract_and_returns_ack(
     tmp_path: Path, monkeypatch
 ) -> None:  # type: ignore[no-untyped-def]
     token = tmp_path / "mail-token"
@@ -198,17 +199,17 @@ def test_http_transport_requires_approved_https_host_and_returns_ack(
         def __exit__(self, *args):  # type: ignore[no-untyped-def]
             return None
 
-        def read(self) -> bytes:
-            return b'{"id":"provider-123"}'
+        def read(self, _size: int = -1) -> bytes:
+            return b'{"success":true,"message_ids":["provider-123"]}'
 
     def fake_urlopen(request, *, timeout):  # type: ignore[no-untyped-def]
         requests.append((request, timeout))
         return Response()
 
     monkeypatch.setattr("homefinder.digest.delivery.urlopen", fake_urlopen)
-    transport = HttpMailTransport(
-        endpoint="https://mail.example.invalid/v1/send",
-        allowed_host="mail.example.invalid",
+    transport = MailtrapApiTransport(
+        endpoint="https://sandbox.api.mailtrap.io/api/send/4015",
+        allowed_host="sandbox.api.mailtrap.io",
         token_file=token,
         sender="homefinder@example.invalid",
         clock=lambda: NOW,
@@ -222,6 +223,16 @@ def test_http_transport_requires_approved_https_host_and_returns_ack(
     )
 
     assert acknowledgement.provider_message_id == "provider-123"
+    payload = json.loads(requests[0][0].data)
+    assert payload == {
+        "from": {"email": "homefinder@example.invalid"},
+        "to": [{"email": "buyer@example.invalid"}],
+        "subject": "weekly",
+        "html": "<p>report</p>",
+        "text": "report",
+        "custom_variables": {"homez_delivery_id": "stable-report-key"},
+    }
+    assert requests[0][0].headers["Authorization"] == "Bearer provider-secret"
     assert requests[0][0].headers["Idempotency-key"] == "stable-report-key"
     assert requests[0][1] == 10.0
 
@@ -229,22 +240,74 @@ def test_http_transport_requires_approved_https_host_and_returns_ack(
 @pytest.mark.parametrize(
     "endpoint",
     (
-        "http://mail.example.invalid/v1/send",
-        "https://mail.example.invalid.attacker.example/v1/send",
-        "https://user:password@mail.example.invalid/v1/send",
+        "http://send.api.mailtrap.io/api/send",
+        "https://send.api.mailtrap.io.attacker.example/api/send",
+        "https://user:password@send.api.mailtrap.io/api/send",
+        "https://send.api.mailtrap.io/api/batch",
+        "https://sandbox.api.mailtrap.io/api/send/not-a-number",
+        "https://sandbox.api.mailtrap.io/api/send/4015?redirect=bad",
     ),
 )
-def test_http_transport_rejects_ssrf_host_confusion(
+def test_mailtrap_transport_rejects_non_mailtrap_or_unsafe_endpoints(
     tmp_path: Path, endpoint: str
 ) -> None:
     token = tmp_path / "mail-token"
     token.write_text("provider-secret", encoding="utf-8")
     token.chmod(0o600)
 
-    with pytest.raises(ValueError, match="approved HTTPS host"):
-        HttpMailTransport(
+    with pytest.raises(ValueError, match="approved Mailtrap HTTPS endpoint"):
+        MailtrapApiTransport(
             endpoint=endpoint,
-            allowed_host="mail.example.invalid",
+            allowed_host="send.api.mailtrap.io",
             token_file=token,
             sender="homefinder@example.invalid",
         )
+
+
+@pytest.mark.parametrize(
+    "response",
+    (
+        b'{"success":false,"message_ids":[]}',
+        b'{"success":true,"message_ids":[]}',
+        b'{"success":true,"message_ids":["one","two"]}',
+        b'{"success":true,"message_ids":[1]}',
+        b'{"id":"legacy-shape"}',
+    ),
+)
+def test_mailtrap_transport_rejects_missing_or_ambiguous_acknowledgement(
+    tmp_path: Path, monkeypatch, response: bytes
+) -> None:  # type: ignore[no-untyped-def]
+    token = tmp_path / "mail-token"
+    token.write_text("provider-secret", encoding="utf-8")
+    token.chmod(0o600)
+
+    class Response:
+        def __enter__(self):  # type: ignore[no-untyped-def]
+            return self
+
+        def __exit__(self, *args):  # type: ignore[no-untyped-def]
+            return None
+
+        def read(self, _size: int = -1) -> bytes:
+            return response
+
+    monkeypatch.setattr(
+        "homefinder.digest.delivery.urlopen", lambda request, timeout: Response()
+    )
+    transport = MailtrapApiTransport(
+        endpoint="https://send.api.mailtrap.io/api/send",
+        allowed_host="send.api.mailtrap.io",
+        token_file=token,
+        sender="homefinder@example.invalid",
+    )
+
+    with pytest.raises(RuntimeError, match="did not acknowledge") as captured:
+        transport.send(
+            recipient="buyer@example.invalid",
+            subject="weekly",
+            html_body="<p>report</p>",
+            text_body="report",
+            idempotency_key="stable-report-key",
+        )
+
+    assert "provider-secret" not in str(captured.value)

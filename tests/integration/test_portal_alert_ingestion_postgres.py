@@ -18,6 +18,7 @@ from homefinder.catalog.repository import SqlAlchemyCatalogRepository
 from homefinder.sources.portal_alerts import (
     GratkaAlertParser,
     MorizonAlertParser,
+    OLXAlertParser,
     OtodomAlertParser,
 )
 
@@ -42,6 +43,7 @@ def test_approved_portals_ingest_idempotently_in_postgresql(
                 ("otodom", OtodomAlertParser()),
                 ("morizon", MorizonAlertParser()),
                 ("gratka", GratkaAlertParser()),
+                ("olx", OLXAlertParser()),
             ):
                 service = AlertIngestionService(
                     parser=parser,
@@ -64,12 +66,12 @@ def test_approved_portals_ingest_idempotently_in_postgresql(
 
             assert (
                 session.scalar(select(func.count()).select_from(SourceMessageRecord))
-                == 3
+                == 4
             )
-            assert session.scalar(select(func.count()).select_from(ListingRecord)) == 3
+            assert session.scalar(select(func.count()).select_from(ListingRecord)) == 4
             assert (
                 session.scalar(select(func.count()).select_from(ListingSnapshotRecord))
-                == 3
+                == 4
             )
     finally:
         engine.dispose()

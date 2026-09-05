@@ -20,7 +20,7 @@ from homefinder.digest.delivery import (
     DeliveryOutbox,
     DeliveryWorker,
     FridayScheduler,
-    HttpMailTransport,
+    MailtrapApiTransport,
 )
 from homefinder.digest.feedback import SqlAlchemyFeedbackService, private_feedback_url
 from homefinder.operations.backup import (
@@ -46,6 +46,7 @@ from homefinder.sources.policy import SourcePolicy, SourcePolicyRegistry
 from homefinder.sources.portal_alerts import (
     GratkaAlertParser,
     MorizonAlertParser,
+    OLXAlertParser,
     OtodomAlertParser,
     SanitizedPortalAlertParser,
 )
@@ -64,7 +65,7 @@ def _parser() -> argparse.ArgumentParser:
     preview.add_argument("--output", type=Path)
     poll = commands.add_parser("poll-gmail", help="poll governed Gmail alerts")
     poll.add_argument(
-        "--source", required=True, choices=("otodom", "morizon", "gratka")
+        "--source", required=True, choices=("otodom", "morizon", "gratka", "olx")
     )
     backup = commands.add_parser("backup", help="create an encrypted PostgreSQL backup")
     backup.add_argument("destination", type=Path)
@@ -94,7 +95,7 @@ def _parser() -> argparse.ArgumentParser:
         "enqueue-poll", help="enqueue an idempotent source polling slot"
     )
     enqueue_poll.add_argument(
-        "--source", required=True, choices=("otodom", "morizon", "gratka")
+        "--source", required=True, choices=("otodom", "morizon", "gratka", "olx")
     )
     enqueue_poll.add_argument("--scheduled-at", required=True)
     schedule = commands.add_parser(
@@ -284,15 +285,14 @@ def _portal_parser(source_key: str, policy: SourcePolicy) -> SanitizedPortalAler
         "otodom": OtodomAlertParser,
         "morizon": MorizonAlertParser,
         "gratka": GratkaAlertParser,
+        "olx": OLXAlertParser,
     }
-    if len(policy.allowed_senders) != 1 or len(policy.allowed_hosts) != 1:
-        raise SystemExit(
-            "each parser contract requires one sender and one listing host"
-        )
-    parser = parsers[source_key]()
-    parser.expected_sender = next(iter(policy.allowed_senders))
-    parser.expected_host = next(iter(policy.allowed_hosts))
-    return parser
+    return parsers[source_key](
+        allowed_senders=policy.allowed_senders,
+        allowed_hosts=policy.allowed_hosts,
+        max_message_bytes=policy.max_message_bytes,
+        redirect_timeout_seconds=policy.timeout_seconds,
+    )
 
 
 def _load_source_policy(path: Path, source_key: str) -> SourcePolicy:
@@ -312,6 +312,7 @@ def _load_source_policy(path: Path, source_key: str) -> SourcePolicy:
             allowed_senders=senders,
             allowed_hosts=hosts,
             max_message_bytes=int(source.get("max_message_bytes", 512_000)),
+            timeout_seconds=float(source.get("timeout_seconds", 5.0)),
         )
     except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError) as error:
         raise SystemExit("source policy file is invalid") from error
@@ -367,7 +368,7 @@ def _poll_gmail(settings: Settings, source_key: str) -> PollResult:
 def _gmail_pollers(settings: Settings) -> dict[str, Callable[[], object]]:
     return {
         source: partial(_poll_gmail, settings, source)
-        for source in ("otodom", "morizon", "gratka")
+        for source in ("otodom", "morizon", "gratka", "olx")
     }
 
 
@@ -415,7 +416,7 @@ def _feedback_links(
     return issue
 
 
-def _mail_transport(settings: Settings) -> HttpMailTransport:
+def _mail_transport(settings: Settings) -> MailtrapApiTransport:
     if (
         settings.mail_api_token_file is None
         or settings.mail_api_endpoint is None
@@ -423,7 +424,7 @@ def _mail_transport(settings: Settings) -> HttpMailTransport:
         or settings.mail_sender is None
     ):
         raise SystemExit("mail provider settings and secret file are required")
-    return HttpMailTransport(
+    return MailtrapApiTransport(
         endpoint=settings.mail_api_endpoint,
         allowed_host=settings.mail_api_host,
         token_file=settings.mail_api_token_file,
@@ -448,7 +449,7 @@ def _run_container_runtime(settings: Settings, args: argparse.Namespace) -> None
         outbox = DeliveryOutbox(sessions)
 
         def action(now: datetime) -> None:
-            for source in ("otodom", "morizon", "gratka"):
+            for source in ("otodom", "morizon", "gratka", "olx"):
                 workflow.enqueue_poll(source_key=source, scheduled_at=now)
             workflow.reconcile_catalog(now=now)
             period = FridayScheduler.most_recent_due_period(now)

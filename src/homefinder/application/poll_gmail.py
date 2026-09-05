@@ -57,9 +57,10 @@ class GmailPollingService:
             sender.casefold() for sender in self._policy.allowed_senders
         )
         if (
-            expected_senders != frozenset({ingestion.expected_sender.casefold()})
+            expected_senders
+            != frozenset(sender.casefold() for sender in ingestion.expected_senders)
             or frozenset(host.casefold() for host in self._policy.allowed_hosts)
-            != frozenset({ingestion.expected_host.casefold()})
+            != frozenset(host.casefold() for host in ingestion.expected_hosts)
             or self._policy.max_message_bytes != ingestion.max_message_bytes
         ):
             raise ValueError("source policy and parser contract must match")

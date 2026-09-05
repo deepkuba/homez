@@ -20,6 +20,7 @@ from homefinder.sources.policy import SourcePolicy, SourcePolicyRegistry
 from homefinder.sources.portal_alerts import (
     GratkaAlertParser,
     MorizonAlertParser,
+    OLXAlertParser,
     OtodomAlertParser,
 )
 
@@ -87,7 +88,7 @@ def test_multi_listing_message_is_atomic_versioned_and_idempotent(
     assert _count(session, ListingSnapshotRecord) == 2
     message = session.scalar(select(SourceMessageRecord))
     assert message is not None
-    assert message.parser_version == "sanitized-email-v1"
+    assert message.parser_version == "portal-email-v3"
 
 
 @pytest.mark.parametrize(
@@ -96,6 +97,7 @@ def test_multi_listing_message_is_atomic_versioned_and_idempotent(
         ("otodom", OtodomAlertParser()),
         ("morizon", MorizonAlertParser()),
         ("gratka", GratkaAlertParser()),
+        ("olx", OLXAlertParser()),
     ),
 )
 def test_each_approved_portal_replay_is_idempotent(
@@ -149,9 +151,9 @@ def test_malformed_multi_listing_message_is_quarantined_without_partial_writes(
     assert _count(session, ListingSnapshotRecord) == 0
     quarantine = session.get(QuarantinedMessageRecord, message.provider_message_id)
     assert quarantine is not None
-    assert quarantine.parser_version == "sanitized-email-v1"
+    assert quarantine.parser_version == "portal-email-v3"
     assert quarantine.reason == (
-        "otodom@sanitized-email-v1: required-fields: listing is missing required fields"
+        "otodom@portal-email-v3: required-fields: listing is missing required fields"
     )
     assert "Broken" not in quarantine.reason
 

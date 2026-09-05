@@ -1,6 +1,7 @@
 """Friday delivery timing and exactly-once period claims."""
 
 import json
+import re
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone
@@ -250,8 +251,10 @@ class FridayScheduler:
         return f"{iso.year:04d}-W{iso.week:02d}"
 
 
-class HttpMailTransport(MailTransport):
-    """HTTPS provider adapter requiring idempotency acknowledgement."""
+class MailtrapApiTransport(MailTransport):
+    """Mailtrap HTTPS API adapter with strict endpoint and acknowledgement checks."""
+
+    _MAX_RESPONSE_BYTES = 64_000
 
     def __init__(
         self,
@@ -264,13 +267,31 @@ class HttpMailTransport(MailTransport):
         clock: Callable[[], datetime] | None = None,
     ) -> None:
         parsed = urlsplit(endpoint)
-        if (
-            parsed.scheme != "https"
-            or parsed.hostname != allowed_host
-            or parsed.username is not None
-            or parsed.password is not None
+        try:
+            port = parsed.port
+        except ValueError as error:
+            raise ValueError(
+                "mail endpoint must be an approved Mailtrap HTTPS endpoint"
+            ) from error
+        production = (
+            parsed.hostname == "send.api.mailtrap.io" and parsed.path == "/api/send"
+        )
+        sandbox = parsed.hostname == "sandbox.api.mailtrap.io" and re.fullmatch(
+            r"/api/send/[1-9][0-9]*", parsed.path
+        )
+        if not (
+            parsed.scheme == "https"
+            and parsed.hostname == allowed_host
+            and (production or sandbox)
+            and port in (None, 443)
+            and parsed.username is None
+            and parsed.password is None
+            and not parsed.query
+            and not parsed.fragment
         ):
-            raise ValueError("mail endpoint must match the approved HTTPS host")
+            raise ValueError(
+                "mail endpoint must be an approved Mailtrap HTTPS endpoint"
+            )
         self._endpoint = endpoint
         self._token_file = token_file
         self._sender = sender
@@ -291,11 +312,14 @@ class HttpMailTransport(MailTransport):
             self._endpoint,
             data=json.dumps(
                 {
-                    "from": self._sender,
-                    "to": [recipient],
+                    "from": {"email": self._sender},
+                    "to": [{"email": recipient}],
                     "subject": subject,
                     "html": html_body,
                     "text": text_body,
+                    "custom_variables": {
+                        "homez_delivery_id": idempotency_key,
+                    },
                 }
             ).encode(),
             headers={
@@ -307,13 +331,23 @@ class HttpMailTransport(MailTransport):
         )
         try:
             with urlopen(request, timeout=self._timeout) as response:  # noqa: S310
-                payload = json.load(response)
-            message_id = payload.get("id")
-            if not isinstance(message_id, str) or not message_id:
+                raw_response = response.read(self._MAX_RESPONSE_BYTES + 1)
+            if len(raw_response) > self._MAX_RESPONSE_BYTES:
+                raise ValueError
+            payload = json.loads(raw_response)
+            if not isinstance(payload, dict) or payload.get("success") is not True:
+                raise ValueError
+            message_ids = payload.get("message_ids")
+            if (
+                not isinstance(message_ids, list)
+                or len(message_ids) != 1
+                or not isinstance(message_ids[0], str)
+                or not message_ids[0]
+            ):
                 raise ValueError
         except (OSError, TypeError, ValueError, json.JSONDecodeError) as error:
             raise RuntimeError("mail provider did not acknowledge delivery") from error
-        return MailAcknowledgement(message_id, self._clock())
+        return MailAcknowledgement(message_ids[0], self._clock())
 
 
 class DeliveryWorker:

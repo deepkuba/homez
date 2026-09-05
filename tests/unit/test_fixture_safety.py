@@ -1,3 +1,5 @@
+from email import policy
+from email.parser import BytesParser
 from pathlib import Path
 
 from homefinder.fixture_safety import scan_fixture_file, scan_fixture_paths
@@ -9,6 +11,17 @@ def test_committed_email_fixtures_are_safe() -> None:
     )
 
     assert violations == []
+
+
+def test_sanitized_olx_example_preserves_only_the_reviewable_contract() -> None:
+    fixture = Path("data/email_examples/olx_alert.eml")
+    message = BytesParser(policy=policy.default).parsebytes(fixture.read_bytes())
+
+    assert message["From"] == "OLX Example Alerts <alerts@example.com>"
+    assert message["X-Homez-Source"] is None
+    assert message.get_body(preferencelist=("plain",)) is not None
+    assert message.get_body(preferencelist=("html",)) is not None
+    assert scan_fixture_file(fixture) == []
 
 
 def test_scanner_rejects_representative_unsafe_fixture(tmp_path: Path) -> None:
