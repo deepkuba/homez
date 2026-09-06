@@ -41,7 +41,7 @@ from homefinder.workflow.repository import WorkflowRepository
 NORMALIZER_VERSION = "catalog-v1"
 MATCHER_VERSION = "rules-v1"
 SELECTION_VERSION = "slate-v1"
-RENDER_VERSION = "digest-v1"
+RENDER_VERSION = "digest-v2"
 REPORT_NAMESPACE = UUID("7e8efea1-64da-4ba1-9a47-f70e23775994")
 
 

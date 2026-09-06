@@ -402,19 +402,30 @@ class DeliveryWorker:
 def append_private_feedback_links(
     html_body: str, links: tuple[tuple[str, str], ...]
 ) -> str:
-    """Add private actions to HTML without contaminating safe-share text."""
+    """Place private actions by their listing without contaminating share text."""
     if not links:
         return html_body
+    updated = html_body
+    unmatched: list[tuple[str, str]] = []
+    for slot, url in links:
+        marker = f'<span data-homez-feedback-slot="{escape(slot, quote=True)}"></span>'
+        if marker not in updated:
+            unmatched.append((slot, url))
+            continue
+        link = f' · <a rel="noreferrer" href="{escape(url, quote=True)}">feedback</a>'
+        updated = updated.replace(marker, link, 1)
+    if not unmatched:
+        return updated
     items = "".join(
         f'<li><a rel="noreferrer" href="{escape(url, quote=True)}">'
         f"{escape(label)}</a></li>"
-        for label, url in links
+        for label, url in unmatched
     )
     section = (
         "<section><h2>Private feedback</h2>"
         "<p>These links are private and single-use.</p>"
         f"<ul>{items}</ul></section>"
     )
-    if "</main>" in html_body:
-        return html_body.replace("</main>", f"{section}</main>", 1)
-    return f"{html_body}{section}"
+    if "</main>" in updated:
+        return updated.replace("</main>", f"{section}</main>", 1)
+    return f"{updated}{section}"

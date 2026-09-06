@@ -143,6 +143,11 @@ def test_sanitized_alert_reaches_idempotent_unknown_safe_report(
         assert not evaluation.eligible
         assert evaluation.contains_unknown_hard_rule
         assert session.scalar(select(func.count(ReportDraftRecord.id))) == 1
+        report = session.get(ReportDraftRecord, first)
+        assert report is not None
+        assert report.render_version == "digest-v2"
+        assert "Criteria not met" in report.html_body
+        assert 'data-homez-feedback-slot="exploration-1"' in report.html_body
         items = session.scalars(select(ReportItemRecord)).all()
         assert len(items) == 1
         assert items[0].section == "exploration"

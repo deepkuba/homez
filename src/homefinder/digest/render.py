@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from html import escape
 
+from homefinder.domain.matching import MatchExplanation, RuleResult, TriState
 from homefinder.domain.ranking import RankedCandidate
 from homefinder.enrichment.primary_market import PrimaryMarketDossier
 
@@ -29,23 +30,27 @@ def render_digest(
     token_urls = token_urls or {}
     sections: list[str] = []
     plain_sections: list[str] = []
-    for heading, items in (
-        ("Compliant homes", digest.compliant),
-        ("Exploration homes", digest.exploration),
+    for heading, section_key, items in (
+        ("Compliant homes", "compliant", digest.compliant),
+        ("Exploration homes", "exploration", digest.exploration),
     ):
         cards: list[str] = []
         lines = [heading]
-        for item in items:
+        for position, item in enumerate(items, start=1):
             facts = item.candidate.facts
             explanation = item.candidate.explanation
             title = escape(facts.title or facts.id)
             url = escape(item.listing_url, quote=True)
             feedback = token_urls.get(facts.id)
             feedback_link = (
-                f' <a href="{escape(feedback, quote=True)}">feedback</a>'
+                f' · <a href="{escape(feedback, quote=True)}" '
+                'rel="noreferrer">feedback</a>'
                 if feedback
-                else ""
+                else (
+                    f'<span data-homez-feedback-slot="{section_key}-{position}"></span>'
+                )
             )
+            criteria_html, criteria_plain = _render_criteria(explanation)
             risk = ""
             risk_plain = ""
             if item.primary_market is not None:
@@ -57,11 +62,11 @@ def render_digest(
                 f"<article><h3>{title}</h3><p>{location} · score "
                 f'{explanation.score}</p><a href="{url}" '
                 f'rel="noreferrer noopener">open listing</a>{feedback_link}'
-                f"{risk}</article>"
+                f"{criteria_html}{risk}</article>"
             )
             lines.append(
                 f"- {facts.title or facts.id} — {facts.locality or 'Location unknown'} "
-                f"— {item.listing_url}{risk_plain}"
+                f"— {item.listing_url}{risk_plain}\n{criteria_plain}"
             )
         sections.append(
             f"<section><h2>{heading}</h2>{''.join(cards) or '<p>None</p>'}</section>"
@@ -72,6 +77,37 @@ def render_digest(
         f"<h1>Homefinder weekly digest</h1>{''.join(sections)}</main>"
     )
     return html, "Homefinder weekly digest\n\n" + "\n".join(plain_sections)
+
+
+def _render_criteria(explanation: MatchExplanation) -> tuple[str, str]:
+    groups = (
+        ("Criteria met", TriState.PASS),
+        ("Criteria not met", TriState.FAIL),
+        ("Unknown / needs verification", TriState.UNKNOWN),
+    )
+    html_groups: list[str] = []
+    plain_groups: list[str] = []
+    for heading, state in groups:
+        rules = tuple(rule for rule in explanation.eligibility if rule.state is state)
+        html_rules = "".join(f"<li>{escape(_rule_text(rule))}</li>" for rule in rules)
+        html_groups.append(
+            f"<section><h4>{heading}</h4>"
+            f"{f'<ul>{html_rules}</ul>' if rules else '<p>None</p>'}</section>"
+        )
+        plain_groups.append(
+            f"  {heading}: "
+            + ("; ".join(_rule_text(rule) for rule in rules) if rules else "None")
+        )
+    return f'<div class="criteria">{"".join(html_groups)}</div>', "\n".join(
+        plain_groups
+    )
+
+
+def _rule_text(rule: RuleResult) -> str:
+    return (
+        f"{rule.name}: actual {rule.actual}; threshold {rule.threshold}; "
+        f"{rule.distance}"
+    )
 
 
 def render_share_text(digest: Digest) -> str:

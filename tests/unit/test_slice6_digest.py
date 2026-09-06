@@ -6,7 +6,12 @@ import pytest
 from homefinder.digest.delivery import DigestDelivery, InMemoryDeliveryLedger
 from homefinder.digest.feedback import FeedbackError, FeedbackService, TokenStore
 from homefinder.digest.render import Digest, DigestItem, render_digest
-from homefinder.domain.matching import MatchExplanation, PropertyFacts
+from homefinder.domain.matching import (
+    MatchExplanation,
+    PropertyFacts,
+    RuleResult,
+    TriState,
+)
 from homefinder.domain.ranking import RankedCandidate
 
 
@@ -27,8 +32,58 @@ def test_digest_has_10_plus_10_sections_and_plain_text() -> None:
     assert "Compliant homes" in html
     assert "Exploration homes" in html
     assert "&lt;b&gt;Bright flat&lt;/b&gt;" in html
+    assert (
+        'open listing</a> · <a href="https://homez.invalid/f/secret" '
+        'rel="noreferrer">feedback</a>' in html
+    )
     assert "https://homez.invalid/f/secret" not in plain
     assert "https://example.invalid/a" in plain
+
+
+def test_digest_groups_and_escapes_match_criteria() -> None:
+    explanation = MatchExplanation(
+        (
+            RuleResult(
+                "area", TriState.PASS, "52 m²", "at least 40 m²", "above by 12 m²"
+            ),
+            RuleResult(
+                "price",
+                TriState.FAIL,
+                "PLN 820,000",
+                "at most PLN 800,000",
+                "over by PLN 20,000",
+            ),
+            RuleResult(
+                "<commute>",
+                TriState.UNKNOWN,
+                "unknown",
+                "at most 45 minutes",
+                "distance unknown",
+            ),
+        ),
+        (),
+        Decimal("8.50"),
+        Decimal("0.90"),
+        (),
+    )
+    item = DigestItem(
+        RankedCandidate(PropertyFacts(id="one", title="Flat"), explanation),
+        "https://example.invalid/a",
+    )
+    digest = Digest("report-1", datetime(2026, 9, 4, tzinfo=timezone.utc), (), (item,))
+
+    html, plain = render_digest(digest)
+
+    assert "Criteria met" in html
+    assert "Criteria not met" in html
+    assert "Unknown / needs verification" in html
+    assert "area: actual 52 m²; threshold at least 40 m²; above by 12 m²" in html
+    assert "price: actual PLN 820,000; threshold at most PLN 800,000" in html
+    assert "&lt;commute&gt;" in html
+    assert "<commute>" not in html
+    assert "Criteria met: area: actual 52 m²" in plain
+    assert "Criteria not met: price: actual PLN 820,000" in plain
+    assert "Unknown / needs verification: <commute>: actual unknown" in plain
 
 
 def test_feedback_requires_post_csrf_and_single_use_scoped_token() -> None:

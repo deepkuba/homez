@@ -127,7 +127,7 @@ def test_alert_to_test_inbox_to_mobile_feedback(
         issued_urls[listing_id] = url
         return (
             (
-                "Exploration home 1",
+                "exploration-1",
                 url,
             ),
         )

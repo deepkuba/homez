@@ -399,7 +399,7 @@ def _feedback_links(
                 ttl=timedelta(days=7),
                 signing_key=signing_key,
             )
-            label = f"{item.section.title()} home {item.position + 1}"
+            label = f"{item.section}-{item.position + 1}"
             links.append(
                 (
                     label,

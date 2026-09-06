@@ -41,7 +41,11 @@ def _report(sessions: sessionmaker[Session], *, period: str = "2026-W36") -> str
                 selection_version="test",
                 render_version="digest-v1",
                 status="prepared",
-                html_body="<main>private</main>",
+                html_body=(
+                    '<main><article><a href="https://listing.example">open listing</a>'
+                    '<span data-homez-feedback-slot="compliant-1"></span>'
+                    "</article></main>"
+                ),
                 text_body="safe share text",
                 content_hash="a" * 64,
                 created_at=NOW,
@@ -174,12 +178,18 @@ def test_delivery_adds_private_links_only_to_html(tmp_path: Path) -> None:
         outbox,
         transport,
         feedback_links=lambda _report_id, _now: (
-            ("Compliant home 1", "https://feedback.example/feedback/r/l#secret"),
+            ("compliant-1", "https://feedback.example/feedback/r/l#secret"),
         ),
     )
 
     assert worker.run_once(now=NOW)
-    assert "Private feedback" in transport.html_bodies[0]
+    assert (
+        'open listing</a> · <a rel="noreferrer" '
+        'href="https://feedback.example/feedback/r/l#secret">feedback</a>'
+        in transport.html_bodies[0]
+    )
+    assert "Private feedback" not in transport.html_bodies[0]
+    assert "homez-feedback" not in transport.html_bodies[0]
     assert "#secret" in transport.html_bodies[0]
     assert transport.text_bodies == ["safe share text"]
 
