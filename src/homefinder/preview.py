@@ -14,7 +14,11 @@ def render_preview_card(listing: Listing, snapshot: ListingSnapshot) -> str:
         listing=listing,
         snapshot=snapshot,
         formatted_price=_format_pln(snapshot.price_minor),
-        formatted_area=format(snapshot.area_sqm.normalize(), "f"),
+        formatted_area=(
+            format(snapshot.area_sqm.normalize(), "f")
+            if snapshot.area_sqm is not None
+            else "unknown"
+        ),
     )
 
 

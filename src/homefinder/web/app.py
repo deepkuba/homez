@@ -87,17 +87,48 @@ def create_app(
         form_action = f"/feedback/{escape(report_id)}/{escape(listing_id)}"
         body = (
             "<!doctype html><meta name=viewport content='width=device-width'>"
-            "<title>Homefinder feedback</title><h1>Feedback</h1>"
+            "<title>Oceń ofertę</title><style>body{font-family:sans-serif;"
+            "max-width:38rem;margin:2rem auto;padding:0 1rem}label{display:block;"
+            "margin:.7rem 0}select,textarea,button{font:inherit;padding:.6rem;"
+            "max-width:100%}textarea{width:100%;box-sizing:border-box}</style>"
+            "<h1>Oceń ofertę</h1>"
             f"<form method=post action='{form_action}'>"
             "<input id=feedback-token type=hidden name=token>"
             f"<input type=hidden name=csrf_token value='{escape(csrf, quote=True)}'>"
-            "<button name=value value=like>Like</button>"
-            "<button name=value value=dislike>Dislike</button>"
-            "<button name=value value=save>Save</button></form>"
+            "<fieldset><legend>Jak oceniasz tę ofertę?</legend>"
+            "<label><input type=radio name=value value=like required> "
+            "Podoba mi się</label>"
+            "<label><input type=radio name=value value=dislike> "
+            "Nie podoba mi się</label>"
+            "<label><input type=radio name=value value=save> Zapisz na później</label>"
+            "</fieldset><div id=dislike-details hidden>"
+            "<label>Dlaczego oferta Ci się nie podoba?"
+            '<select id=reason-code name="reason_code">'
+            "<option value=''>Wybierz powód</option>"
+            '<option value="too_expensive">Za wysoka cena</option>'
+            '<option value="wrong_location">Nieodpowiednia lokalizacja</option>'
+            '<option value="too_small">Za mały metraż</option>'
+            '<option value="too_few_rooms">Za mało pokoi</option>'
+            '<option value="poor_condition">Zły stan / za duży remont</option>'
+            '<option value="bad_layout">Nieodpowiedni układ</option>'
+            '<option value="commute">Zbyt długi dojazd</option>'
+            '<option value="floor_or_no_elevator">Piętro lub brak windy</option>'
+            '<option value="no_parking">Brak możliwości parkowania</option>'
+            '<option value="legal_risk">Ryzyko prawne</option>'
+            '<option value="other">Inny powód</option>'
+            "</select></label></div>"
+            "<label>Dodatkowy komentarz (opcjonalny)"
+            '<textarea name="comment" maxlength=500 rows=4></textarea></label>'
+            "<button type=submit>Zapisz ocenę</button></form>"
             f"<script nonce='{nonce}'>"
             "const t=location.hash.slice(1);"
             "document.getElementById('feedback-token').value=t;"
             "history.replaceState(null,'',location.pathname);"
+            "const d=document.getElementById('dislike-details');"
+            "const r=document.getElementById('reason-code');"
+            "document.querySelectorAll('input[name=value]').forEach(e=>"
+            "e.addEventListener('change',()=>{const x=e.value==='dislike'&&e.checked;"
+            "d.hidden=!x;r.required=x;}));"
             "</script>"
         )
         response = HTMLResponse(body)
@@ -135,11 +166,15 @@ def create_app(
                 token = str(payload["token"])
                 value = str(payload["value"])
                 submitted_csrf = str(payload.get("csrf_token", ""))
+                reason_code = str(payload.get("reason_code", "")) or None
+                comment = str(payload.get("comment", "")) or None
             else:
                 values = parse_qs(body.decode("utf-8"), strict_parsing=True)
                 token = values["token"][0]
                 value = values["value"][0]
                 submitted_csrf = values["csrf_token"][0]
+                reason_code = values.get("reason_code", [None])[0]
+                comment = values.get("comment", [None])[0]
         except (KeyError, IndexError, TypeError, ValueError, UnicodeError) as error:
             raise HTTPException(
                 status_code=400, detail="invalid feedback request"
@@ -156,6 +191,8 @@ def create_app(
                 report_id=report_id,
                 listing_id=listing_id,
                 actor_hash=_actor_hash(application.state.settings, request),
+                reason_code=reason_code,
+                comment=comment,
             )
         except FeedbackError as error:
             detail = str(error)
@@ -166,7 +203,8 @@ def create_app(
         if is_json:
             return JSONResponse({"status": "recorded"})
         return HTMLResponse(
-            "<!doctype html><title>Feedback recorded</title><p>Thank you.</p>"
+            "<!doctype html><title>Ocena zapisana</title>"
+            "<p>Dziękujemy. Ocena została zapisana.</p>"
         )
 
     @application.post("/corrections/{property_id}")

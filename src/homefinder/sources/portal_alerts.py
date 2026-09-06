@@ -30,19 +30,19 @@ MAX_MESSAGE_BYTES = 512_000
 MAX_LISTINGS_PER_MESSAGE = 200
 MAX_HTML_NODES = 10_000
 MAX_HTML_DEPTH = 100
-PARSER_VERSION = "portal-email-v3"
+PARSER_VERSION = "portal-email-v4"
 SOURCE_NAMESPACE = UUID("1dc5983b-2035-4cc4-a8bd-b8d63a83a8dc")
 MAX_TRACKING_URL_BYTES = 4096
 MAX_REDIRECT_CACHE_ENTRIES = 1024
 RedirectFetcher = Callable[[str, float], tuple[int, tuple[str, ...]]]
-_REQUIRED_FIELDS = frozenset({"title", "url", "price", "area", "rooms", "location"})
+_REQUIRED_FIELDS = frozenset({"title", "url", "price"})
 _PRICE_PATTERN = re.compile(r"([0-9][0-9\s\u00a0]*)\s*(PLN|zł)", re.IGNORECASE)
 _AREA_PATTERN = re.compile(r"([0-9]+(?:[.,][0-9]+)?)\s*m(?:2|²)", re.IGNORECASE)
 _ROOMS_PATTERN = re.compile(r"([0-9]+)")
 _ROOMS_TEXT_PATTERN = re.compile(
     r"(?<!\d)([0-9]{1,3})\s*(?:pok(?:ój|oje|oi)|rooms?)\b", re.IGNORECASE
 )
-_CARD_TAGS = frozenset({"article", "li", "tr", "td", "div"})
+_CARD_TAGS = frozenset({"article", "li", "table", "tbody", "tr", "td", "div"})
 _VOID_TAGS = frozenset(
     {
         "area",
@@ -347,7 +347,10 @@ class SanitizedPortalAlertParser:
             raise AlertParseError(
                 "listing is missing required fields", code="required-fields"
             )
-        if len(article.fields["title"]) > 500 or len(article.fields["location"]) > 500:
+        location = article.fields.get("location") or None
+        if len(article.fields["title"]) > 500 or (
+            location is not None and len(location) > 500
+        ):
             raise AlertParseError(
                 "listing fields exceed the contract limits", code="field-limits"
             )
@@ -356,15 +359,21 @@ class SanitizedPortalAlertParser:
         )
         try:
             price_match = _PRICE_PATTERN.fullmatch(article.fields["price"])
-            area_match = _AREA_PATTERN.fullmatch(article.fields["area"])
-            rooms_match = _ROOMS_PATTERN.fullmatch(article.fields["rooms"])
-            if price_match is None or area_match is None or rooms_match is None:
+            area_value = article.fields.get("area")
+            rooms_value = article.fields.get("rooms")
+            area_match = _AREA_PATTERN.fullmatch(area_value) if area_value else None
+            rooms_match = _ROOMS_PATTERN.fullmatch(rooms_value) if rooms_value else None
+            if price_match is None:
                 raise ValueError
             price_major = int(
                 price_match.group(1).replace(" ", "").replace("\u00a0", "")
             )
-            area_sqm = Decimal(area_match.group(1).replace(",", "."))
-            rooms = int(rooms_match.group(1))
+            area_sqm = (
+                Decimal(area_match.group(1).replace(",", "."))
+                if area_match is not None
+                else None
+            )
+            rooms = int(rooms_match.group(1)) if rooms_match is not None else None
         except (InvalidOperation, ValueError) as error:
             raise AlertParseError(
                 "listing contains invalid numeric values", code="numeric-values"
@@ -372,10 +381,10 @@ class SanitizedPortalAlertParser:
         if (
             price_major <= 0
             or price_major > 20_000_000
-            or area_sqm <= 0
-            or area_sqm > 999_999
-            or rooms <= 0
-            or rooms > 100
+            or area_sqm is not None
+            and (area_sqm <= 0 or area_sqm > 999_999)
+            or rooms is not None
+            and (rooms <= 0 or rooms > 100)
         ):
             raise AlertParseError(
                 "listing contains out-of-range numeric values", code="numeric-values"
@@ -391,10 +400,10 @@ class SanitizedPortalAlertParser:
         snapshot_values = {
             "price_minor": price_major * 100,
             "currency": "PLN",
-            "area_sqm": str(area_sqm),
+            "area_sqm": str(area_sqm) if area_sqm is not None else None,
             "rooms": rooms,
             "availability": "available",
-            "location": article.fields["location"],
+            "location": location,
             "description": article.fields.get("description", ""),
         }
         snapshot = ListingSnapshot(
@@ -406,7 +415,7 @@ class SanitizedPortalAlertParser:
             area_sqm=area_sqm,
             rooms=rooms,
             availability="available",
-            location=article.fields["location"],
+            location=location,
             description=article.fields.get("description", ""),
             content_hash=hashlib.sha256(
                 json.dumps(snapshot_values, sort_keys=True).encode()
@@ -513,25 +522,42 @@ class SanitizedPortalAlertParser:
                 "HTML does not match the parser contract", code="format-drift"
             ) from error
 
-        articles: list[_Article] = []
-        seen_urls: set[str] = set()
+        grouped: dict[str, list[_HTMLNode]] = {}
         for anchor in _walk_nodes(tree.root):
             if anchor.tag != "a" or not anchor.attrs.get("href"):
                 continue
-            if not _has_listing_metrics_context(anchor):
+            if _is_tracking_anchor(
+                anchor, self.tracking_host
+            ) and not _has_price_context(anchor):
                 continue
             try:
                 canonical_url = self._canonical_listing_url(anchor.attrs["href"])
             except AlertParseError:
                 continue
-            if canonical_url in seen_urls:
-                continue
-            article = self._article_from_anchor(anchor, canonical_url)
+            grouped.setdefault(canonical_url, []).append(anchor)
+
+        articles: list[_Article] = []
+        for canonical_url, anchors in grouped.items():
+            article = self._article_from_anchors(anchors, canonical_url)
             if article is None:
                 continue
-            seen_urls.add(canonical_url)
             articles.append(article)
         return articles
+
+    def _article_from_anchors(
+        self, anchors: list[_HTMLNode], canonical_url: str
+    ) -> _Article | None:
+        common = _lowest_common_ancestor(anchors)
+        node = common.parent if common.tag == "a" else common
+        while node is not None and node.tag != "document":
+            if node.tag in _CARD_TAGS or node.attrs.get("role") == "article":
+                article = self._article_from_card(
+                    anchors[0], node, canonical_url, anchors=anchors
+                )
+                if article is not None:
+                    return article
+            node = node.parent
+        return None
 
     def _article_from_anchor(
         self, anchor: _HTMLNode, canonical_url: str
@@ -546,19 +572,24 @@ class SanitizedPortalAlertParser:
         return None
 
     def _article_from_card(
-        self, anchor: _HTMLNode, card: _HTMLNode, canonical_url: str
+        self,
+        anchor: _HTMLNode,
+        card: _HTMLNode,
+        canonical_url: str,
+        *,
+        anchors: list[_HTMLNode] | None = None,
     ) -> _Article | None:
         chunks = card.text_chunks()
         combined = " | ".join(chunks)
         price = _PRICE_PATTERN.search(combined)
         area = _AREA_PATTERN.search(combined)
         rooms = _ROOMS_TEXT_PATTERN.search(combined)
-        if price is None or area is None or rooms is None:
+        if price is None:
             return None
 
-        title = _generic_title(anchor, card)
+        title = _generic_group_title(anchors or [anchor], card, canonical_url)
         location = _generic_location(card, title)
-        if not title or not location:
+        if not title:
             return None
         url_digest = hashlib.sha256(canonical_url.encode()).hexdigest()[:32]
         listing_id = f"{self.source_key}-{url_digest}"
@@ -568,9 +599,9 @@ class SanitizedPortalAlertParser:
                 "title": title,
                 "url": canonical_url,
                 "price": price.group(0),
-                "area": area.group(0),
-                "rooms": rooms.group(1),
-                "location": location,
+                **({"area": area.group(0)} if area is not None else {}),
+                **({"rooms": rooms.group(1)} if rooms is not None else {}),
+                **({"location": location} if location else {}),
             },
             metadata={"url": {"href": canonical_url}},
         )
@@ -600,7 +631,7 @@ class GratkaAlertParser(SanitizedPortalAlertParser):
     tracking_host = "link.gratka.pl"
     tracking_kind = "base64-path"
     real_listing_hosts = frozenset({"gratka.pl", "www.gratka.pl"})
-    real_listing_path = re.compile(r"/nieruchomosci/.+/ob/[0-9]+/?")
+    real_listing_path = re.compile(r"/nieruchomosci/.+/o[bi]/[0-9]+/?")
 
 
 class OLXAlertParser(SanitizedPortalAlertParser):
@@ -698,13 +729,29 @@ def _has_listing_metrics_context(anchor: _HTMLNode) -> bool:
     return False
 
 
+def _has_price_context(anchor: _HTMLNode) -> bool:
+    node = anchor.parent
+    while node is not None and node.tag != "document":
+        if node.tag in _CARD_TAGS and _PRICE_PATTERN.search(
+            " | ".join(node.text_chunks())
+        ):
+            return True
+        node = node.parent
+    return False
+
+
+def _is_tracking_anchor(anchor: _HTMLNode, tracking_host: str | None) -> bool:
+    if tracking_host is None:
+        return False
+    try:
+        return urlsplit(anchor.attrs.get("href", "")).hostname == tracking_host
+    except ValueError:
+        return False
+
+
 def _generic_title(anchor: _HTMLNode, card: _HTMLNode) -> str:
-    anchor_text = _normalize_space(" ".join(anchor.text_chunks()))
-    if (
-        2 < len(anchor_text) <= 500
-        and anchor_text.casefold() not in _CALL_TO_ACTIONS
-        and _PRICE_PATTERN.search(anchor_text) is None
-    ):
+    anchor_text = _anchor_title(anchor)
+    if anchor_text:
         return anchor_text
     for node in _walk_nodes(card):
         if node.tag in {"h1", "h2", "h3", "h4"}:
@@ -712,6 +759,59 @@ def _generic_title(anchor: _HTMLNode, card: _HTMLNode) -> str:
             if 2 < len(heading) <= 500:
                 return heading
     return ""
+
+
+def _generic_group_title(
+    anchors: list[_HTMLNode], card: _HTMLNode, canonical_url: str
+) -> str:
+    for anchor in anchors:
+        title = _anchor_title(anchor)
+        if title:
+            return title
+    for anchor in anchors:
+        for node in _walk_nodes(anchor):
+            if node.tag == "img":
+                alt = _normalize_space(node.attrs.get("alt", ""))
+                if 2 < len(alt) <= 500:
+                    return alt
+    for node in _walk_nodes(card):
+        if node.tag in {"h1", "h2", "h3", "h4"}:
+            heading = _normalize_space(" ".join(node.text_chunks()))
+            if 2 < len(heading) <= 500:
+                return heading
+    path = urlsplit(canonical_url).path.rstrip("/")
+    slug = path.split("/")[-1]
+    slug = re.sub(r"(?:-|_)?ID[a-zA-Z0-9]+(?:\.html)?$", "", slug)
+    slug = _normalize_space(re.sub(r"[-_]+", " ", slug))
+    return slug[:500] if len(slug) > 2 else ""
+
+
+def _anchor_title(anchor: _HTMLNode) -> str:
+    anchor_text = _normalize_space(" ".join(anchor.text_chunks()))
+    if (
+        2 < len(anchor_text) <= 500
+        and anchor_text.casefold() not in _CALL_TO_ACTIONS
+        and _PRICE_PATTERN.search(anchor_text) is None
+    ):
+        return anchor_text
+    return ""
+
+
+def _lowest_common_ancestor(nodes: list[_HTMLNode]) -> _HTMLNode:
+    paths: list[list[_HTMLNode]] = []
+    for node in nodes:
+        path: list[_HTMLNode] = []
+        current: _HTMLNode | None = node
+        while current is not None:
+            path.append(current)
+            current = current.parent
+        paths.append(list(reversed(path)))
+    common = paths[0][0]
+    for level in zip(*paths, strict=False):
+        if any(node is not level[0] for node in level[1:]):
+            break
+        common = level[0]
+    return common
 
 
 def _generic_location(card: _HTMLNode, title: str) -> str:

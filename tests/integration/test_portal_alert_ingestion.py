@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -88,7 +89,7 @@ def test_multi_listing_message_is_atomic_versioned_and_idempotent(
     assert _count(session, ListingSnapshotRecord) == 2
     message = session.scalar(select(SourceMessageRecord))
     assert message is not None
-    assert message.parser_version == "portal-email-v3"
+    assert message.parser_version == "portal-email-v4"
 
 
 @pytest.mark.parametrize(
@@ -114,6 +115,44 @@ def test_each_approved_portal_replay_is_idempotent(
     assert _count(session, SourceMessageRecord) == 1
     assert _count(session, ListingRecord) == 1
     assert _count(session, ListingSnapshotRecord) == 1
+
+
+def test_successful_quarantine_retry_removes_stale_quarantine_record(
+    session: Session,
+) -> None:
+    raw = (FIXTURES / "otodom_alert.eml").read_bytes()
+    message = GmailMessage("gmail-retry-1", raw, label_ids=("HOMEZ_ALERT",))
+    session.add(
+        QuarantinedMessageRecord(
+            provider_message_id=message.provider_message_id,
+            source_key="otodom",
+            received_at=datetime.now(timezone.utc),
+            raw_message=raw,
+            reason="old parser failure",
+            parser_version="portal-email-v3",
+        )
+    )
+    session.commit()
+    gmail = FakeGmail(message)
+    source_policy = SourcePolicy(
+        key="otodom",
+        allowed_senders=frozenset({"alerts@example.com"}),
+        allowed_hosts=frozenset({"example.com"}),
+    )
+
+    result = GmailPollingService(
+        session=session,
+        gmail=gmail,
+        ingestion=AlertIngestionService(
+            parser=OtodomAlertParser(),
+            catalog=SqlAlchemyCatalogRepository(session),
+        ),
+        policies=SourcePolicyRegistry((source_policy,)),
+        source_key="otodom",
+    ).poll()
+
+    assert result.ingested == 1
+    assert session.get(QuarantinedMessageRecord, message.provider_message_id) is None
 
 
 def test_malformed_multi_listing_message_is_quarantined_without_partial_writes(
@@ -151,9 +190,9 @@ def test_malformed_multi_listing_message_is_quarantined_without_partial_writes(
     assert _count(session, ListingSnapshotRecord) == 0
     quarantine = session.get(QuarantinedMessageRecord, message.provider_message_id)
     assert quarantine is not None
-    assert quarantine.parser_version == "portal-email-v3"
+    assert quarantine.parser_version == "portal-email-v4"
     assert quarantine.reason == (
-        "otodom@portal-email-v3: required-fields: listing is missing required fields"
+        "otodom@portal-email-v4: required-fields: listing is missing required fields"
     )
     assert "Broken" not in quarantine.reason
 

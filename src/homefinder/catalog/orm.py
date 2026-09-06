@@ -68,10 +68,10 @@ class ListingSnapshotRecord(Base):
     observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     price_minor: Mapped[int]
     currency: Mapped[str] = mapped_column(String(3))
-    area_sqm: Mapped[Decimal] = mapped_column(Numeric(8, 2))
-    rooms: Mapped[int]
+    area_sqm: Mapped[Decimal | None] = mapped_column(Numeric(8, 2), nullable=True)
+    rooms: Mapped[int | None] = mapped_column(nullable=True)
     availability: Mapped[str] = mapped_column(String(20))
-    location: Mapped[str] = mapped_column(String(500))
+    location: Mapped[str | None] = mapped_column(String(500), nullable=True)
     description: Mapped[str] = mapped_column(Text)
     content_hash: Mapped[str] = mapped_column(String(64))
 
@@ -441,6 +441,8 @@ class FeedbackEventRecord(Base):
     report_id: Mapped[str] = mapped_column(String(100))
     listing_id: Mapped[str] = mapped_column(String(100))
     value: Mapped[str] = mapped_column(String(20))
+    reason_code: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    comment: Mapped[str | None] = mapped_column(String(500), nullable=True)
     actor_hash: Mapped[str] = mapped_column(String(64), index=True)
     recorded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 

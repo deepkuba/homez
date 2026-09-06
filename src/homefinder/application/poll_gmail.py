@@ -119,6 +119,12 @@ class GmailPollingService:
                     if self._strict_labels
                     else (self._labels.alert,),
                 )
+                stale_quarantine = self._session.get(
+                    QuarantinedMessageRecord, message_id
+                )
+                if stale_quarantine is not None:
+                    self._session.delete(stale_quarantine)
+                    self._session.commit()
                 result = _replace(
                     result,
                     ingested=result.ingested + int(ingested.created),

@@ -2,9 +2,9 @@
   <h2>{{ listing.title }}</h2>
   <p class="listing-card__price">{{ formatted_price }}</p>
   <dl>
-    <dt>Lokalizacja</dt><dd>{{ snapshot.location }}</dd>
+    <dt>Lokalizacja</dt><dd>{{ snapshot.location or "unknown" }}</dd>
     <dt>Powierzchnia</dt><dd>{{ formatted_area }} m²</dd>
-    <dt>Pokoje</dt><dd>{{ snapshot.rooms }}</dd>
+    <dt>Pokoje</dt><dd>{{ snapshot.rooms if snapshot.rooms is not none else "unknown" }}</dd>
   </dl>
   {% if snapshot.description %}<p>{{ snapshot.description }}</p>{% endif %}
   <a href="{{ listing.canonical_url }}" rel="noreferrer noopener">Zobacz ogłoszenie</a>

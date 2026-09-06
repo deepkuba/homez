@@ -35,6 +35,25 @@ class FeedbackEvent:
     listing_id: str
     value: str
     recorded_at: datetime
+    reason_code: str | None = None
+    comment: str | None = None
+
+
+DISLIKE_REASONS = frozenset(
+    {
+        "too_expensive",
+        "wrong_location",
+        "too_small",
+        "too_few_rooms",
+        "poor_condition",
+        "bad_layout",
+        "commute",
+        "floor_or_no_elevator",
+        "no_parking",
+        "legal_risk",
+        "other",
+    }
+)
 
 
 class TokenStore:
@@ -84,6 +103,8 @@ class FeedbackService:
         now: datetime,
         report_id: str = "report-1",
         listing_id: str = "one",
+        reason_code: str | None = None,
+        comment: str | None = None,
     ) -> FeedbackEvent:
         if method.upper() != "POST":
             raise FeedbackError("feedback requires POST")
@@ -91,6 +112,7 @@ class FeedbackService:
             raise FeedbackError("invalid CSRF token")
         if value not in {"like", "dislike", "save"}:
             raise FeedbackError("invalid feedback value")
+        reason_code, comment = _validate_details(value, reason_code, comment)
         recent = [
             event
             for event in self.events
@@ -99,7 +121,7 @@ class FeedbackService:
         if len(recent) >= self.max_events:
             raise FeedbackError("feedback rate limit exceeded")
         self.tokens.consume(token, report_id=report_id, listing_id=listing_id, now=now)
-        event = FeedbackEvent(report_id, listing_id, value, now)
+        event = FeedbackEvent(report_id, listing_id, value, now, reason_code, comment)
         self.events.append(event)
         return event
 
@@ -226,6 +248,8 @@ class SqlAlchemyFeedbackService:
         report_id: str,
         listing_id: str,
         actor_hash: str = "anonymous",
+        reason_code: str | None = None,
+        comment: str | None = None,
     ) -> FeedbackEvent:
         if method.upper() != "POST":
             raise FeedbackError("feedback requires POST")
@@ -233,6 +257,7 @@ class SqlAlchemyFeedbackService:
             raise FeedbackError("invalid CSRF token")
         if value not in {"like", "dislike", "save"}:
             raise FeedbackError("invalid feedback value")
+        reason_code, comment = _validate_details(value, reason_code, comment)
         digest = _digest(token)
         with self._sessions() as session:
             recent = session.scalar(
@@ -277,12 +302,32 @@ class SqlAlchemyFeedbackService:
                     report_id=report_id,
                     listing_id=listing_id,
                     value=value,
+                    reason_code=reason_code,
+                    comment=comment,
                     actor_hash=actor_hash,
                     recorded_at=now,
                 )
             )
             session.commit()
-        return FeedbackEvent(report_id, listing_id, value, now)
+        return FeedbackEvent(report_id, listing_id, value, now, reason_code, comment)
+
+
+def _validate_details(
+    value: str, reason_code: str | None, comment: str | None
+) -> tuple[str | None, str | None]:
+    reason = reason_code.strip() if reason_code else None
+    note = comment.strip() if comment else None
+    if value == "dislike":
+        if reason not in DISLIKE_REASONS:
+            raise FeedbackError("dislike reason is required")
+    elif reason is not None:
+        raise FeedbackError("reason is only valid for dislike feedback")
+    if note is not None and (
+        len(note) > 500
+        or any(ord(character) < 32 and character not in "\n\r\t" for character in note)
+    ):
+        raise FeedbackError("feedback comment is invalid")
+    return reason, note
 
 
 def _digest(raw: str) -> str:

@@ -54,7 +54,7 @@ def test_approved_portal_contract_parses_sanitized_fixture(
     parsed = parser_type().parse((FIXTURES / f"{source_key}_alert.eml").read_bytes())
 
     assert parsed.source.key == source_key
-    assert parsed.message.parser_version == "portal-email-v3"
+    assert parsed.message.parser_version == "portal-email-v4"
     assert len(parsed.items) == 1
     assert parsed.listing.source_listing_id == f"{source_key}-example-001"
     assert parsed.snapshot.currency == "PLN"
@@ -143,6 +143,70 @@ def test_portal_contract_normalizes_multiple_listings() -> None:
         "morizon-example-002",
     ]
     assert parsed.items[1].snapshot.price_minor == 90_000_000
+
+
+def test_missing_optional_email_facts_are_preserved_as_unknown() -> None:
+    raw = (FIXTURES / "gratka_alert.eml").read_bytes()
+    for field in (b"area", b"rooms", b"location"):
+        raw = raw.replace(b'data-field="' + field + b'"', b'data-optional="removed"')
+
+    parsed = GratkaAlertParser().parse(raw)
+
+    assert parsed.snapshot.area_sqm is None
+    assert parsed.snapshot.rooms is None
+    assert parsed.snapshot.location is None
+
+
+@pytest.mark.parametrize(
+    ("parser_type", "listing_url"),
+    (
+        (OtodomAlertParser, "https://www.otodom.pl/pl/oferta/example-ID4abc.html"),
+        (MorizonAlertParser, "https://www.morizon.pl/oferta/sprzedaz-example-123"),
+        (GratkaAlertParser, "https://gratka.pl/nieruchomosci/example/oi/12345"),
+        (OLXAlertParser, "https://www.olx.pl/d/oferta/example-ID123.html"),
+    ),
+)
+def test_production_style_card_uses_image_alt_and_allows_unknown_metrics(
+    parser_type: type[OtodomAlertParser], listing_url: str
+) -> None:
+    href = listing_url
+    redirect_fetcher = None
+    if parser_type.tracking_kind == "base64-path":
+        href = (
+            f"https://{parser_type.tracking_host}/click/message/"
+            f"{_base64url(listing_url)}/signature"
+        )
+    elif parser_type.tracking_kind == "http-302":
+        href = f"https://{parser_type.tracking_host}/f/a/safe-token"
+
+        def fetch_redirect(_url: str, _timeout: float) -> tuple[int, tuple[str, ...]]:
+            return 302, (listing_url,)
+
+        redirect_fetcher = fetch_redirect
+    raw = f"""Message-ID: <{parser_type.source_key}-production@example.com>
+Date: Mon, 31 Aug 2026 15:00:00 +0200
+From: Portal alerts <alerts@example.com>
+Subject: Production card
+Content-Type: text/html; charset=utf-8
+
+<html><body><div role="article"><table role="presentation"><tr><td>
+  <a href="{href}"><img alt="Example garden apartment"></a>
+</td></tr><tr><td><strong>750000 PLN</strong></td></tr></table></div></body></html>
+""".encode()
+    parser = parser_type(
+        allowed_hosts=frozenset({listing_url.split("/")[2]}),
+        redirect_fetcher=redirect_fetcher,
+    )
+
+    parsed = parser.parse(raw)
+
+    assert len(parsed.items) == 1
+    assert parsed.listing.title == "Example garden apartment"
+    assert parsed.listing.canonical_url == listing_url
+    assert parsed.snapshot.price_minor == 75_000_000
+    assert parsed.snapshot.area_sqm is None
+    assert parsed.snapshot.rooms is None
+    assert parsed.snapshot.location is None
 
 
 def test_portal_contract_rejects_oversized_and_invalid_numeric_messages() -> None:

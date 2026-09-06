@@ -135,6 +135,9 @@ def test_get_is_side_effect_free_and_post_has_security_controls(
 
     form = client.get("/feedback/report-1/listing-1")
     assert form.status_code == 200
+    assert 'name="reason_code"' in form.text
+    assert 'value="too_expensive"' in form.text
+    assert 'name="comment"' in form.text
     assert token not in form.text
     assert form.headers["referrer-policy"] == "no-referrer"
     assert form.headers["cache-control"] == "no-store"
@@ -186,6 +189,57 @@ def test_get_is_side_effect_free_and_post_has_security_controls(
         ).status_code
         == 200
     )
+
+
+def test_dislike_requires_reason_and_persists_optional_comment(tmp_path: Path) -> None:
+    sessions = _sessions(tmp_path)
+    service = SqlAlchemyFeedbackService(sessions)
+    token = service.issue(
+        "report-1", "listing-1", now=datetime.now(timezone.utc), ttl=timedelta(days=7)
+    )
+    settings = Settings(
+        environment="test",
+        database_url=f"sqlite+pysqlite:///{tmp_path / 'feedback.sqlite'}",
+        _env_file=None,
+    )
+    client = TestClient(
+        create_app(settings, feedback_service=service), base_url="https://testserver"
+    )
+    form = client.get("/feedback/report-1/listing-1")
+    csrf = form.cookies["homefinder_csrf"]
+    client.cookies.set("homefinder_csrf", csrf)
+
+    missing_reason = client.post(
+        "/feedback/report-1/listing-1",
+        data={"token": token, "csrf_token": csrf, "value": "dislike"},
+    )
+    assert missing_reason.status_code == 400
+    assert (
+        service.inspect(
+            token,
+            report_id="report-1",
+            listing_id="listing-1",
+            now=datetime.now(timezone.utc),
+        )
+        is TokenStatus.VALID
+    )
+
+    recorded = client.post(
+        "/feedback/report-1/listing-1",
+        data={
+            "token": token,
+            "csrf_token": csrf,
+            "value": "dislike",
+            "reason_code": "too_expensive",
+            "comment": "Cena nie odpowiada standardowi mieszkania.",
+        },
+    )
+    assert recorded.status_code == 200
+    with sessions() as session:
+        event = session.scalar(select(FeedbackEventRecord))
+        assert event is not None
+        assert event.reason_code == "too_expensive"
+        assert event.comment == "Cena nie odpowiada standardowi mieszkania."
 
 
 def test_private_link_keeps_token_in_fragment() -> None:

@@ -39,10 +39,10 @@ class ListingSnapshot:
     observed_at: datetime
     price_minor: int
     currency: str
-    area_sqm: Decimal
-    rooms: int
+    area_sqm: Decimal | None
+    rooms: int | None
     availability: str
-    location: str
+    location: str | None
     description: str
     content_hash: str
 

@@ -230,7 +230,11 @@ class WorkflowService:
                     "canonical_url": listing.canonical_url,
                     "locality": snapshot.location,
                     "purchase_price_minor": snapshot.price_minor,
-                    "area_sqm": str(snapshot.area_sqm),
+                    "area_sqm": (
+                        str(snapshot.area_sqm)
+                        if snapshot.area_sqm is not None
+                        else None
+                    ),
                     "rooms": snapshot.rooms,
                     "availability": snapshot.availability,
                 }
@@ -505,10 +509,18 @@ def _facts_from_payload(
     return PropertyFacts(
         id=str(fact_set.candidate_id),
         title=str(payload["title"]),
-        locality=str(payload["locality"]),
+        locality=(str(payload["locality"]) if payload.get("locality") else None),
         cost=None,
-        area_sqm=Decimal(str(payload["area_sqm"])),
-        rooms=_object_int(payload.get("rooms"), "rooms"),
+        area_sqm=(
+            Decimal(str(payload["area_sqm"]))
+            if payload.get("area_sqm") is not None
+            else None
+        ),
+        rooms=(
+            _object_int(payload.get("rooms"), "rooms")
+            if payload.get("rooms") is not None
+            else None
+        ),
         transaction_type=TransactionType.PURCHASE,
         market_type=None,
         last_presented_at=(

@@ -13,6 +13,8 @@ def deterministic_duplicate_key(listing: Listing, snapshot: ListingSnapshot) -> 
     The title is included deliberately: a district, room count, and area alone
     are too coarse and would merge unrelated homes in the same neighborhood.
     """
+    if snapshot.location is None or snapshot.rooms is None or snapshot.area_sqm is None:
+        return f"listing|{listing.source_id}|{listing.source_listing_id}"
     return "|".join(
         (
             normalize_text(snapshot.location),
@@ -35,14 +37,23 @@ def duplicate_evidence(
     other_location = normalize_text(other_snapshot.location)
     title = normalize_text(listing.title)
     other_title = normalize_text(other_listing.title)
-    if location == other_location:
+    if location and other_location and location == other_location:
         reasons.append("same normalized location")
     if title == other_title:
         reasons.append("same normalized title")
-    if snapshot.rooms == other_snapshot.rooms:
+    same_rooms = (
+        snapshot.rooms is not None
+        and other_snapshot.rooms is not None
+        and snapshot.rooms == other_snapshot.rooms
+    )
+    if same_rooms:
         reasons.append("same room count")
-    area_delta = abs(snapshot.area_sqm - other_snapshot.area_sqm)
-    if area_delta <= Decimal("1.0"):
+    area_close = (
+        snapshot.area_sqm is not None
+        and other_snapshot.area_sqm is not None
+        and abs(snapshot.area_sqm - other_snapshot.area_sqm) <= Decimal("1.0")
+    )
+    if area_close:
         reasons.append("area differs by at most 1 m²")
     if snapshot.price_minor and other_snapshot.price_minor:
         price_delta = abs(snapshot.price_minor - other_snapshot.price_minor)
@@ -51,18 +62,22 @@ def duplicate_evidence(
         ) <= Decimal("0.05"):
             reasons.append("price differs by at most 5%")
     confidence = Decimal("0")
-    confidence += Decimal("0.35") if location == other_location else Decimal("0")
-    confidence += Decimal("0.25") if title == other_title else Decimal("0")
     confidence += (
-        Decimal("0.15") if snapshot.rooms == other_snapshot.rooms else Decimal("0")
+        Decimal("0.35")
+        if location and other_location and location == other_location
+        else Decimal("0")
     )
-    confidence += Decimal("0.15") if area_delta <= Decimal("1.0") else Decimal("0")
+    confidence += Decimal("0.25") if title == other_title else Decimal("0")
+    confidence += Decimal("0.15") if same_rooms else Decimal("0")
+    confidence += Decimal("0.15") if area_close else Decimal("0")
     confidence += (
         Decimal("0.10") if "price differs by at most 5%" in reasons else Decimal("0")
     )
     return confidence, tuple(reasons)
 
 
-def normalize_text(value: str) -> str:
+def normalize_text(value: str | None) -> str:
+    if value is None:
+        return ""
     value = unicodedata.normalize("NFKD", value).encode("ascii", "ignore").decode()
     return re.sub(r"[^a-z0-9]+", " ", value.lower()).strip()
