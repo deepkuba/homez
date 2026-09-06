@@ -49,6 +49,10 @@ def test_compose_defines_least_privilege_runtime_topology() -> None:
     assert "egress" not in services["web"]["networks"]
     assert "ports" not in services["workflow-worker"]
     assert "ports" not in services["delivery-worker"]
+    assert (
+        services["delivery-worker"]["environment"]["HOMEFINDER_FEEDBACK_BASE_URL"]
+        == "https://${HOMEZ_DOMAIN:?set HOMEZ_DOMAIN}"
+    )
     state_mounts = [
         mount
         for mount in services["workflow-worker"]["volumes"]

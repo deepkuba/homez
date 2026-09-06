@@ -178,7 +178,7 @@ services:
       HOMEFINDER_MAIL_API_HOST: "${HOMEFINDER_MAIL_API_HOST:?set mail host}"
       HOMEFINDER_MAIL_SENDER: "${HOMEFINDER_MAIL_SENDER:?set mail sender}"
       HOMEFINDER_FEEDBACK_BASE_URL: >-
-        https://${HOMEZ_DOMAIN:?set HOMEZ_DOMAIN}/feedback
+        https://${HOMEZ_DOMAIN:?set HOMEZ_DOMAIN}
       HOMEFINDER_FEEDBACK_TOKEN_KEY_FILE: /run/secrets/feedback_token_key
     depends_on:
       db:
