@@ -523,12 +523,13 @@ class SanitizedPortalAlertParser:
             ) from error
 
         grouped: dict[str, list[_HTMLNode]] = {}
+        price_context_cache: dict[int, bool] = {}
         for anchor in _walk_nodes(tree.root):
             if anchor.tag != "a" or not anchor.attrs.get("href"):
                 continue
             if _is_tracking_anchor(
                 anchor, self.tracking_host
-            ) and not _has_price_context(anchor):
+            ) and not _has_price_context(anchor, price_context_cache):
                 continue
             try:
                 canonical_url = self._canonical_listing_url(anchor.attrs["href"])
@@ -729,13 +730,19 @@ def _has_listing_metrics_context(anchor: _HTMLNode) -> bool:
     return False
 
 
-def _has_price_context(anchor: _HTMLNode) -> bool:
+def _has_price_context(anchor: _HTMLNode, cache: dict[int, bool]) -> bool:
     node = anchor.parent
     while node is not None and node.tag != "document":
-        if node.tag in _CARD_TAGS and _PRICE_PATTERN.search(
-            " | ".join(node.text_chunks())
-        ):
-            return True
+        if node.tag in _CARD_TAGS:
+            cache_key = id(node)
+            contains_price = cache.get(cache_key)
+            if contains_price is None:
+                contains_price = (
+                    _PRICE_PATTERN.search(" | ".join(node.text_chunks())) is not None
+                )
+                cache[cache_key] = contains_price
+            if contains_price:
+                return True
         node = node.parent
     return False
 
