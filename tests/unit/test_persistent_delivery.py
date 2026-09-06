@@ -234,6 +234,7 @@ def test_mailtrap_transport_sends_provider_contract_and_returns_ack(
     }
     assert requests[0][0].headers["Authorization"] == "Bearer provider-secret"
     assert requests[0][0].headers["Idempotency-key"] == "stable-report-key"
+    assert requests[0][0].headers["User-agent"] == "Homez/1.0"
     assert requests[0][1] == 10.0
 
 

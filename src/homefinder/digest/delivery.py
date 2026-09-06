@@ -326,6 +326,7 @@ class MailtrapApiTransport(MailTransport):
                 "Authorization": f"Bearer {token}",
                 "Content-Type": "application/json",
                 "Idempotency-Key": idempotency_key,
+                "User-Agent": "Homez/1.0",
             },
             method="POST",
         )
