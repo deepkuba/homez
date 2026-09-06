@@ -109,8 +109,8 @@ services:
       - gmail_token_key
     volumes:
       - type: bind
-        source: "${HOMEZ_STATE_DIR:?set HOMEZ_STATE_DIR}/gmail-token.json"
-        target: /var/lib/homefinder/gmail-token.json
+        source: "${HOMEZ_STATE_DIR:?set HOMEZ_STATE_DIR}"
+        target: /var/lib/homefinder
       - type: bind
         source: "${HOMEZ_CONFIG_DIR:?set HOMEZ_CONFIG_DIR}/source-policy.json"
         target: /etc/homefinder/source-policy.json

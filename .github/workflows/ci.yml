@@ -157,12 +157,15 @@ jobs:
             "$HOMEZ_SECRETS_DIR/admin-bearer-token"
           printf '%s' 'ZmFrZS1iYWNrdXAta2V5LWZvci1jaQ==' > \
             "$HOMEZ_SECRETS_DIR/backup-key"
-          sudo chown root:root "$HOMEZ_SECRETS_DIR"/*
-          sudo chmod 0444 "$HOMEZ_SECRETS_DIR"/*
+          sudo chown root:10001 "$HOMEZ_SECRETS_DIR"/*
+          sudo chmod 0440 "$HOMEZ_SECRETS_DIR"/*
           printf '%s' '{"sources":{}}' > \
             "$HOMEZ_CONFIG_DIR/source-policy.json"
           install -m 0600 /dev/null "$HOMEZ_STATE_DIR/gmail-token.json"
-          sudo chown 10001:10001 "$HOMEZ_STATE_DIR/gmail-token.json"
+          sudo chown 10001:10001 \
+            "$HOMEZ_STATE_DIR" "$HOMEZ_STATE_DIR/gmail-token.json"
+          sudo chown 10001:10001 "$HOMEZ_CONFIG_DIR/source-policy.json"
+          sudo chmod 0400 "$HOMEZ_CONFIG_DIR/source-policy.json"
           compose() {
             docker compose --project-name homez-ci -f infra/compose.yaml "$@"
           }
@@ -210,6 +213,10 @@ jobs:
           ! grep -F 'fake-compose-password' \
             "$RUNNER_TEMP/homez-compose.rendered"
           ! grep -F 'fake-mail-token' "$RUNNER_TEMP/homez-compose.rendered"
+          compose run --rm --no-deps workflow-worker sh -c \
+            'test -r /var/lib/homefinder/gmail-token.json &&
+            touch /var/lib/homefinder/.write-probe &&
+            rm /var/lib/homefinder/.write-probe'
           compose up --detach db
           compose run --rm migrate
           compose up --detach --wait ingress

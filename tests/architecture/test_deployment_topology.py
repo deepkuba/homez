@@ -49,6 +49,22 @@ def test_compose_defines_least_privilege_runtime_topology() -> None:
     assert "egress" not in services["web"]["networks"]
     assert "ports" not in services["workflow-worker"]
     assert "ports" not in services["delivery-worker"]
+    state_mounts = [
+        mount
+        for mount in services["workflow-worker"]["volumes"]
+        if mount["target"] == "/var/lib/homefinder"
+    ]
+    assert state_mounts == [
+        {
+            "type": "bind",
+            "source": "${HOMEZ_STATE_DIR:?set HOMEZ_STATE_DIR}",
+            "target": "/var/lib/homefinder",
+        }
+    ]
+    assert all(
+        mount["target"] != "/var/lib/homefinder/gmail-token.json"
+        for mount in services["workflow-worker"]["volumes"]
+    )
     assert "backend" not in services["ingress"]["networks"]
     assert set(compose["secrets"]) >= {
         "database_url",

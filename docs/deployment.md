@@ -22,7 +22,8 @@ sudo install -d -m 0700 /var/lib/homez
 sudo chown 10001:10001 /var/lib/homez
 ```
 
-Create these root-owned `0600` secret files under `/etc/homez/secrets`:
+Create these root-owned, container-group-readable `0440` secret files under
+`/etc/homez/secrets`:
 
 - `database-url`: full SQLAlchemy PostgreSQL URL;
 - `postgres-password`: the matching database password;
@@ -34,10 +35,22 @@ Create these root-owned `0600` secret files under `/etc/homez/secrets`:
 - `admin-bearer-token`: high-entropy correction API credential.
 - `backup-key`: a base64 32-byte backup key stored separately from backup data.
 
-Docker mounts these files at `/run/secrets`. Their contents do not appear in
-Compose interpolation, container commands, or image layers. The encrypted Gmail
-token is mutable state rather than a Docker secret because refreshes atomically
-replace it:
+Docker mounts these files at `/run/secrets`. Compose bind mounts preserve host
+ownership and permissions, so use numeric group `10001`, matching the non-root
+application container, while keeping `/etc/homez/secrets` itself `root:root`
+`0700`. Their contents do not appear in Compose interpolation, container
+commands, or image layers:
+
+```bash
+sudo chown 0:10001 /etc/homez/secrets/*
+sudo chmod 0440 /etc/homez/secrets/*
+sudo chown root:root /etc/homez/secrets
+sudo chmod 0700 /etc/homez/secrets
+```
+
+The encrypted Gmail token is mutable state because refreshes atomically replace
+it. The dedicated state directory—not the individual file—is therefore mounted
+writable into the otherwise read-only workflow container:
 
 ```bash
 sudo install -m 0600 \
