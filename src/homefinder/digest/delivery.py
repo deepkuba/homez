@@ -131,6 +131,11 @@ class DeliveryOutbox:
             session.commit()
             return True
 
+    def contains_period(self, period: str) -> bool:
+        """Return whether a delivery has already been scheduled for a period."""
+        with self._sessions() as session:
+            return session.get(DigestDeliveryRecord, period) is not None
+
     def claim(
         self,
         *,

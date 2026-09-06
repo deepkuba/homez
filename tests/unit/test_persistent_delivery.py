@@ -116,6 +116,8 @@ def test_acknowledged_delivery_is_never_claimed_twice(tmp_path: Path) -> None:
         render_version="digest-v1",
         now=NOW,
     )
+    assert outbox.contains_period("2026-W36")
+    assert not outbox.contains_period("2026-W35")
     assert not outbox.enqueue(
         period="2026-W36",
         report_id=report_id,

@@ -185,6 +185,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             if settings.report_recipient_file is None:
                 raise SystemExit("report recipient secret file is required")
             period = FridayScheduler.most_recent_due_period(now)
+            if outbox.contains_period(period):
+                print(False)
+                return 0
             with sessions() as session:
                 report = session.scalar(
                     select(ReportDraftRecord)
@@ -454,6 +457,8 @@ def _run_container_runtime(settings: Settings, args: argparse.Namespace) -> None
             workflow.reconcile_catalog(now=now)
             period = FridayScheduler.most_recent_due_period(now)
             scheduled_at = FridayScheduler.scheduled_at(period)
+            if outbox.contains_period(period):
+                return
             workflow.enqueue_report(
                 period=period,
                 cutoff_at=scheduled_at,
