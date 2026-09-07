@@ -88,7 +88,7 @@ def create_app(
             else None,
         }
 
-    @application.get("/offers", response_class=HTMLResponse)
+    @application.get("/feedback/offers", response_class=HTMLResponse)
     def offers(
         authorization: str | None = Header(default=None),
         feedback: Literal["all", "with_feedback", "without_feedback"] = "all",
@@ -444,7 +444,7 @@ def _render_offer_browser(
 
 def _offer_filter_link(key: str, label: str, count: int, selected: str) -> str:
     css_class = " class=active" if key == selected else ""
-    href = "/offers?" + urlencode({"feedback": key})
+    href = "/feedback/offers?" + urlencode({"feedback": key})
     return f"<a{css_class} href='{href}'>{label} ({count})</a>"
 
 
@@ -488,10 +488,14 @@ def _offer_navigation(
 ) -> str:
     links: list[str] = []
     if has_previous:
-        href = "/offers?" + urlencode({"feedback": feedback_filter, "page": page - 1})
+        href = "/feedback/offers?" + urlencode(
+            {"feedback": feedback_filter, "page": page - 1}
+        )
         links.append(f"<a href='{href}'>← Poprzednia</a>")
     if has_next:
-        href = "/offers?" + urlencode({"feedback": feedback_filter, "page": page + 1})
+        href = "/feedback/offers?" + urlencode(
+            {"feedback": feedback_filter, "page": page + 1}
+        )
         links.append(f"<a href='{href}'>Następna →</a>")
     return f"<nav aria-label='Stronicowanie'>{''.join(links)}</nav>"
 

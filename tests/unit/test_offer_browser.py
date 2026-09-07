@@ -77,33 +77,38 @@ def test_offer_browser_is_private_and_filters_by_feedback(tmp_path: Path) -> Non
         base_url="https://testserver",
     )
 
-    unauthorized = client.get("/offers")
+    unauthorized = client.get("/feedback/offers")
     assert unauthorized.status_code == 401
     assert unauthorized.headers["www-authenticate"].startswith("Basic")
-    assert client.get("/offers", auth=("homez", "wrong")).status_code == 401
+    assert client.get("/feedback/offers", auth=("homez", "wrong")).status_code == 401
 
-    all_offers = client.get("/offers", auth=("homez", "admin-secret"))
+    all_offers = client.get("/feedback/offers", auth=("homez", "admin-secret"))
     assert all_offers.status_code == 200
     assert "Oceniona &lt;script&gt;alert(1)&lt;/script&gt;" in all_offers.text
     assert "Cena &gt; standard" in all_offers.text
     assert "Za wysoka cena" in all_offers.text
     assert "Bez oceny" in all_offers.text
 
-    rated = client.get("/offers?feedback=with_feedback", auth=("homez", "admin-secret"))
+    rated = client.get(
+        "/feedback/offers?feedback=with_feedback", auth=("homez", "admin-secret")
+    )
     assert "Oceniona" in rated.text
     assert "Bez oceny" not in rated.text
 
     unrated = client.get(
-        "/offers?feedback=without_feedback", auth=("homez", "admin-secret")
+        "/feedback/offers?feedback=without_feedback", auth=("homez", "admin-secret")
     )
     assert "Bez oceny" in unrated.text
     assert "Oceniona" not in unrated.text
     assert (
-        client.get("/offers?page=0", auth=("homez", "admin-secret")).status_code == 400
+        client.get(
+            "/feedback/offers?page=0", auth=("homez", "admin-secret")
+        ).status_code
+        == 400
     )
     assert (
         client.get(
-            "/offers?feedback=invalid", auth=("homez", "admin-secret")
+            "/feedback/offers?feedback=invalid", auth=("homez", "admin-secret")
         ).status_code
         == 422
     )
