@@ -113,7 +113,7 @@ literal JSON boolean (not a string):
 
 Validate the merged configuration, pull the same immutable image on both hosts,
 and restart only `workflow-worker`. Existing catalog snapshots are normalized
-again under `catalog-page-v1`; successful NAS results replace only facts present
+again under `catalog-page-v2`; successful NAS results replace only facts present
 on the page, while missing optional facts fall back to the email alert.
 
 ## Rollback

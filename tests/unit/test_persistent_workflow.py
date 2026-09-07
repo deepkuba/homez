@@ -2,6 +2,7 @@ import json
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
+from uuid import uuid4
 
 import pytest
 from sqlalchemy import create_engine, func, select
@@ -15,6 +16,7 @@ from homefinder.catalog.orm import (
     CandidatePresentationRecord,
     ReportDraftRecord,
     ReportItemRecord,
+    SourceMessageItemRecord,
     WorkflowJobRecord,
 )
 from homefinder.catalog.profile_repository import SqlAlchemyBuyerProfileRepository
@@ -272,3 +274,41 @@ def test_normalization_honors_nas_scraper_cooldown(tmp_path: Path) -> None:
         assert job.state == JobState.RETRY_WAIT.value
         assert job.available_at == NOW.replace(tzinfo=None) + timedelta(hours=6)
         assert job.last_error_code == "portal-rate-limited"
+
+
+def test_reconcile_reprocesses_snapshots_from_pre_scraper_page_version(
+    tmp_path: Path,
+) -> None:
+    sessions = _sessions(tmp_path)
+    with sessions() as session:
+        AlertIngestionService(
+            parser=SamplePortalAlertParser(),
+            catalog=SqlAlchemyCatalogRepository(session),
+        ).ingest(FIXTURE.read_bytes())
+        item = session.scalar(select(SourceMessageItemRecord))
+        assert item is not None
+        session.add(
+            CandidateFactSetRecord(
+                id=uuid4(),
+                candidate_id=item.candidate_id,
+                listing_id=item.listing_id,
+                snapshot_id=item.snapshot_id,
+                normalizer_version="catalog-page-v1",
+                facts_schema_version=1,
+                facts_json="{}",
+                facts_hash="0" * 64,
+                material_fingerprint="0" * 64,
+                created_at=NOW,
+            )
+        )
+        session.commit()
+
+    workflow = WorkflowService(sessions)
+
+    assert workflow.reconcile_catalog(now=NOW) == 1
+    with sessions() as session:
+        job = session.scalar(
+            select(WorkflowJobRecord).where(WorkflowJobRecord.kind == "normalize")
+        )
+        assert job is not None
+        assert job.idempotency_key.endswith(":catalog-page-v2")

@@ -42,7 +42,7 @@ from homefinder.workflow.models import (
 )
 from homefinder.workflow.repository import WorkflowRepository
 
-NORMALIZER_VERSION = "catalog-page-v1"
+NORMALIZER_VERSION = "catalog-page-v2"
 MATCHER_VERSION = "rules-v1"
 SELECTION_VERSION = "slate-v1"
 RENDER_VERSION = "digest-v2"
