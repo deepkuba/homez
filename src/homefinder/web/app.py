@@ -2,6 +2,7 @@ import base64
 import binascii
 import hashlib
 import hmac
+import json
 import secrets
 from datetime import datetime, timezone
 from html import escape
@@ -12,7 +13,7 @@ from uuid import UUID
 from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from pydantic import BaseModel
-from sqlalchemy import create_engine, select
+from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from homefinder.catalog.orm import (
@@ -21,6 +22,7 @@ from homefinder.catalog.orm import (
     ListingSnapshotRecord,
     ReportDraftRecord,
     SourceRecord,
+    WorkflowJobRecord,
 )
 from homefinder.config import Environment, Settings
 from homefinder.digest.delivery import DeliveryOutbox
@@ -194,6 +196,17 @@ def create_app(
             raise HTTPException(status_code=status_code, detail=str(error)) from error
         return RedirectResponse(
             "/feedback/offers?feedback=with_feedback", status_code=303
+        )
+
+    @application.get("/feedback/queue", response_class=HTMLResponse)
+    def queue_status(
+        authorization: str | None = Header(default=None),
+    ) -> HTMLResponse:
+        _require_offer_browser_admin(application.state.settings, authorization)
+        return HTMLResponse(
+            _render_queue_status(
+                application.state.sessions, now=datetime.now(timezone.utc)
+            )
         )
 
     @application.get("/feedback/{report_id}/{listing_id}", response_class=HTMLResponse)
@@ -530,6 +543,7 @@ def _render_offer_browser(
         f"<input type=hidden name=csrf_token value='{escape(csrf_token, quote=True)}'>"
         "<button type=submit>Wygeneruj i wyślij raport teraz</button></form>"
     )
+    queue_link = "<p><a href='/feedback/queue'>Status kolejki</a></p>"
     return (
         "<!doctype html><html lang=pl><meta charset=utf-8>"
         "<meta name=viewport content='width=device-width'><title>Oferty Homez</title>"
@@ -544,10 +558,194 @@ def _render_offer_browser(
         "margin:.4rem 0}select,textarea,button{font:inherit;padding:.45rem;"
         "max-width:100%}textarea{width:100%;box-sizing:border-box}"
         ".notice{background:#e6f4ea;padding:.7rem;border-radius:.4rem}</style>"
-        f"<body><main><h1>Oferty Homez</h1>{notice}{report_form}"
+        f"<body><main><h1>Oferty Homez</h1>{notice}{report_form}{queue_link}"
         f"<nav aria-label='Filtr ofert'>{tabs}</nav>"
         f"<p>Wyników: {total}</p>{cards}{navigation}</main></body></html>"
     )
+
+
+_QUEUE_STATES = (
+    "pending",
+    "running",
+    "retry_wait",
+    "succeeded",
+    "dead_letter",
+    "manual_review",
+)
+_ACTIVE_QUEUE_STATES = frozenset(("pending", "running", "retry_wait"))
+_QUEUE_STATE_LABELS = {
+    "pending": "Oczekujące",
+    "running": "W toku",
+    "retry_wait": "Ponowienie",
+    "succeeded": "Zakończone",
+    "dead_letter": "Błąd końcowy",
+    "manual_review": "Wymaga decyzji",
+}
+_QUEUE_KIND_LABELS = {
+    "poll": "Pobieranie poczty",
+    "normalize": "Scraping i normalizacja",
+    "enrich": "Wzbogacanie",
+    "match": "Ocena ofert",
+    "report": "Raporty",
+}
+
+
+def _render_queue_status(sessions: sessionmaker[Session], *, now: datetime) -> str:
+    with sessions() as session:
+        aggregate_rows = session.execute(
+            select(
+                WorkflowJobRecord.kind,
+                WorkflowJobRecord.state,
+                func.count(WorkflowJobRecord.id),
+                func.min(WorkflowJobRecord.created_at),
+                func.max(WorkflowJobRecord.updated_at),
+            ).group_by(WorkflowJobRecord.kind, WorkflowJobRecord.state)
+        ).all()
+        normalization_rows = session.execute(
+            select(WorkflowJobRecord.payload_json, WorkflowJobRecord.state).where(
+                WorkflowJobRecord.kind == "normalize",
+                WorkflowJobRecord.state.in_(_ACTIVE_QUEUE_STATES),
+            )
+        ).all()
+        error_rows = session.execute(
+            select(
+                WorkflowJobRecord.last_error_code,
+                WorkflowJobRecord.state,
+                func.count(WorkflowJobRecord.id),
+            )
+            .where(WorkflowJobRecord.last_error_code.is_not(None))
+            .group_by(WorkflowJobRecord.last_error_code, WorkflowJobRecord.state)
+            .order_by(WorkflowJobRecord.state, WorkflowJobRecord.last_error_code)
+        ).all()
+
+        listing_ids = {
+            listing_id
+            for payload_json, _ in normalization_rows
+            if (listing_id := _queue_listing_id(payload_json)) is not None
+        }
+        source_by_listing = {
+            listing_id: display_name
+            for listing_id, display_name in session.execute(
+                select(ListingRecord.id, SourceRecord.display_name)
+                .join(SourceRecord, SourceRecord.id == ListingRecord.source_id)
+                .where(ListingRecord.id.in_(listing_ids))
+            )
+        }
+
+    counts: dict[str, dict[str, int]] = {}
+    totals = {state: 0 for state in _QUEUE_STATES}
+    oldest_active: datetime | None = None
+    latest_activity: datetime | None = None
+    for kind, state, count, oldest, latest in aggregate_rows:
+        counts.setdefault(kind, {})[state] = count
+        if state in totals:
+            totals[state] += count
+        if state in _ACTIVE_QUEUE_STATES and (
+            oldest_active is None or oldest < oldest_active
+        ):
+            oldest_active = oldest
+        if latest_activity is None or latest > latest_activity:
+            latest_activity = latest
+
+    source_counts: dict[str, dict[str, int]] = {}
+    for payload_json, state in normalization_rows:
+        listing_id = _queue_listing_id(payload_json)
+        source = source_by_listing.get(listing_id, "Nieznane")
+        by_state = source_counts.setdefault(source, {})
+        by_state[state] = by_state.get(state, 0) + 1
+
+    cards = "".join(
+        "<div class=card><span>"
+        f"{escape(_QUEUE_STATE_LABELS[state])}</span><strong>{totals[state]}</strong>"
+        "</div>"
+        for state in (
+            "pending",
+            "running",
+            "retry_wait",
+            "dead_letter",
+            "manual_review",
+        )
+    )
+    kind_rows = (
+        "".join(
+            "<tr><th scope=row>"
+            f"{escape(_QUEUE_KIND_LABELS.get(kind, kind))}</th>"
+            + "".join(f"<td>{by_state.get(state, 0)}</td>" for state in _QUEUE_STATES)
+            + f"<td>{sum(by_state.values())}</td></tr>"
+            for kind, by_state in sorted(counts.items())
+        )
+        or "<tr><td colspan=8>Brak zadań.</td></tr>"
+    )
+    source_rows = (
+        "".join(
+            "<tr><th scope=row>"
+            f"{escape(source)}</th>"
+            f"<td>{by_state.get('pending', 0)}</td>"
+            f"<td>{by_state.get('running', 0)}</td>"
+            f"<td>{by_state.get('retry_wait', 0)}</td>"
+            f"<td>{sum(by_state.values())}</td></tr>"
+            for source, by_state in sorted(source_counts.items())
+        )
+        or "<tr><td colspan=5>Brak aktywnych zadań normalizacji.</td></tr>"
+    )
+    errors = (
+        "".join(
+            "<tr><td>"
+            f"{escape(error_code or 'nieznany')}</td>"
+            f"<td>{escape(_QUEUE_STATE_LABELS.get(state, state))}</td>"
+            f"<td>{count}</td></tr>"
+            for error_code, state, count in error_rows
+        )
+        or "<tr><td colspan=3>Brak błędów.</td></tr>"
+    )
+    headings = "".join(
+        f"<th scope=col>{escape(_QUEUE_STATE_LABELS[state])}</th>"
+        for state in _QUEUE_STATES
+    )
+    return (
+        "<!doctype html><html lang=pl><meta charset=utf-8>"
+        "<meta name=viewport content='width=device-width'>"
+        "<meta http-equiv=refresh content=15><title>Kolejka Homez</title>"
+        "<style>body{font-family:system-ui,sans-serif;max-width:75rem;margin:2rem "
+        "auto;padding:0 1rem;color:#202124}.cards{display:flex;gap:.7rem;"
+        "flex-wrap:wrap}.card{min-width:9rem;border:1px solid #ddd;border-radius:.7rem;"
+        "padding:.8rem}.card span,.card strong{display:block}.card strong{font-size:"
+        "1.6rem;margin-top:.25rem}table{border-collapse:collapse;width:100%;"
+        "margin:1rem 0 2rem}th,td{text-align:left;border-bottom:1px solid #ddd;"
+        "padding:.55rem}th{white-space:nowrap}.meta{color:#555}a{color:inherit}</style>"
+        "<body><main><p><a href='/feedback/offers'>← Oferty</a></p>"
+        "<h1>Kolejka Homez</h1>"
+        f"<p class=meta>Stan na {_queue_time(now)} · "
+        "automatyczne odświeżanie co 15 s</p>"
+        f"<div class=cards>{cards}</div>"
+        "<h2>Wszystkie etapy</h2><table><thead><tr><th scope=col>Etap</th>"
+        f"{headings}<th scope=col>Razem</th></tr></thead><tbody>{kind_rows}</tbody>"
+        "</table><h2>Aktywna normalizacja według portalu</h2><table><thead><tr>"
+        "<th scope=col>Portal</th><th scope=col>Oczekujące</th>"
+        "<th scope=col>W toku</th><th scope=col>Ponowienie</th>"
+        f"<th scope=col>Razem</th></tr></thead><tbody>{source_rows}</tbody></table>"
+        "<h2>Kody błędów</h2><table><thead><tr><th scope=col>Kod</th>"
+        "<th scope=col>Stan</th><th scope=col>Liczba</th></tr></thead>"
+        f"<tbody>{errors}</tbody></table><p class=meta>Najstarsze aktywne zadanie: "
+        f"{_queue_time(oldest_active)}<br>Ostatnia zmiana: "
+        f"{_queue_time(latest_activity)}</p></main></body></html>"
+    )
+
+
+def _queue_listing_id(payload_json: str) -> UUID | None:
+    try:
+        value = json.loads(payload_json).get("listing_id")
+        return UUID(value) if isinstance(value, str) else None
+    except (AttributeError, TypeError, ValueError, json.JSONDecodeError):
+        return None
+
+
+def _queue_time(value: datetime | None) -> str:
+    if value is None:
+        return "—"
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return escape(value.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC"))
 
 
 def _offer_filter_link(key: str, label: str, count: int, selected: str) -> str:
