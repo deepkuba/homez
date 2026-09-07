@@ -7,9 +7,10 @@ from datetime import datetime, timezone
 from html import escape
 from typing import Literal
 from urllib.parse import parse_qs, urlencode
+from uuid import UUID
 
 from fastapi import FastAPI, Header, HTTPException, Request
-from fastapi.responses import HTMLResponse, JSONResponse, Response
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from pydantic import BaseModel
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
@@ -97,12 +98,67 @@ def create_app(
         _require_offer_browser_admin(application.state.settings, authorization)
         if page < 1:
             raise HTTPException(status_code=400, detail="page must be positive")
-        return HTMLResponse(
+        csrf = secrets.token_urlsafe(32)
+        response = HTMLResponse(
             _render_offer_browser(
                 application.state.sessions,
                 feedback_filter=feedback,
                 page=page,
+                csrf_token=csrf,
             )
+        )
+        response.set_cookie(
+            "homefinder_offers_csrf",
+            csrf,
+            secure=True,
+            httponly=True,
+            samesite="strict",
+            max_age=3600,
+            path="/feedback/offers",
+        )
+        return response
+
+    @application.post("/feedback/offers/{listing_id}")
+    async def offer_feedback(
+        listing_id: str,
+        request: Request,
+        authorization: str | None = Header(default=None),
+    ) -> RedirectResponse:
+        _require_offer_browser_admin(application.state.settings, authorization)
+        body = await request.body()
+        if len(body) > 4096:
+            raise HTTPException(status_code=413, detail="feedback request is too large")
+        try:
+            parsed_listing_id = UUID(listing_id)
+            values = parse_qs(body.decode("utf-8"), strict_parsing=True)
+            value = values["value"][0]
+            submitted_csrf = values["csrf_token"][0]
+            reason_code = values.get("reason_code", [None])[0]
+            comment = values.get("comment", [None])[0]
+        except (KeyError, IndexError, TypeError, ValueError, UnicodeError) as error:
+            raise HTTPException(
+                status_code=400, detail="invalid feedback request"
+            ) from error
+        with application.state.sessions() as session:
+            if session.get(ListingRecord, parsed_listing_id) is None:
+                raise HTTPException(status_code=404, detail="listing not found")
+        try:
+            application.state.feedback_service.record_authenticated(
+                method=request.method,
+                csrf_token=submitted_csrf,
+                expected_csrf=request.cookies.get("homefinder_offers_csrf", ""),
+                value=value,
+                now=datetime.now(timezone.utc),
+                listing_id=listing_id,
+                actor_hash=_actor_hash(application.state.settings, request),
+                reason_code=reason_code,
+                comment=comment,
+            )
+        except FeedbackError as error:
+            status_code = 429 if "rate limit" in str(error) else 400
+            raise HTTPException(status_code=status_code, detail=str(error)) from error
+        return RedirectResponse(
+            "/feedback/offers?feedback=with_feedback", status_code=303
         )
 
     @application.get("/feedback/{report_id}/{listing_id}", response_class=HTMLResponse)
@@ -352,6 +408,7 @@ def _render_offer_browser(
     *,
     feedback_filter: str,
     page: int,
+    csrf_token: str,
     page_size: int = 50,
 ) -> str:
     with sessions() as session:
@@ -416,7 +473,7 @@ def _render_offer_browser(
     )
     cards = (
         "".join(
-            _offer_card(listing, source, snapshot, event)
+            _offer_card(listing, source, snapshot, event, csrf_token=csrf_token)
             for listing, source, snapshot, event in visible
         )
         or "<p>Brak ofert dla wybranego filtra.</p>"
@@ -436,7 +493,10 @@ def _render_offer_browser(
         "border-radius:.5rem;text-decoration:none;color:inherit}.active{background:#202124;"
         "color:white}article{border:1px solid #ddd;border-radius:.7rem;padding:1rem;"
         "margin:1rem 0}h2{font-size:1.15rem;margin:.2rem 0}.facts{color:#555}"
-        ".feedback{background:#f4f5f6;padding:.7rem;border-radius:.4rem}</style>"
+        ".feedback{background:#f4f5f6;padding:.7rem;border-radius:.4rem}"
+        "details{margin-top:.8rem}fieldset{border:0;padding:0}label{display:block;"
+        "margin:.4rem 0}select,textarea,button{font:inherit;padding:.45rem;"
+        "max-width:100%}textarea{width:100%;box-sizing:border-box}</style>"
         f"<body><main><h1>Oferty Homez</h1><nav aria-label='Filtr ofert'>{tabs}</nav>"
         f"<p>Wyników: {total}</p>{cards}{navigation}</main></body></html>"
     )
@@ -453,6 +513,8 @@ def _offer_card(
     source: SourceRecord,
     snapshot: ListingSnapshotRecord | None,
     event: FeedbackEventRecord | None,
+    *,
+    csrf_token: str,
 ) -> str:
     facts = "Brak szczegółów"
     if snapshot is not None:
@@ -474,12 +536,47 @@ def _offer_card(
         )
         comment = f"<br>{escape(event.comment)}" if event.comment else ""
         feedback = f"<p class=feedback><strong>{value}</strong>{reason}{comment}</p>"
+    form = _offer_feedback_form(
+        listing_id=str(listing.id), csrf_token=csrf_token, event=event
+    )
     return (
         "<article>"
         f"<small>{escape(source.display_name)}</small>"
         f"<h2>{escape(listing.title)}</h2><p class=facts>{facts}</p>{feedback}"
         f"<a href='{escape(listing.canonical_url, quote=True)}' "
-        "rel='noreferrer noopener' target=_blank>Otwórz ogłoszenie</a></article>"
+        "rel='noreferrer noopener' target=_blank>Otwórz ogłoszenie</a>"
+        f"{form}</article>"
+    )
+
+
+def _offer_feedback_form(
+    *, listing_id: str, csrf_token: str, event: FeedbackEventRecord | None
+) -> str:
+    summary = "Zmień feedback" if event is not None else "Dodaj feedback"
+    current = event.value if event is not None else None
+    reason = event.reason_code if event is not None else None
+    comment = escape(event.comment) if event is not None and event.comment else ""
+    options = "".join(
+        f"<option value='{code}'{' selected' if code == reason else ''}>"
+        f"{escape(label)}</option>"
+        for code, label in _REASON_LABELS.items()
+    )
+    return (
+        f"<details><summary>{summary}</summary>"
+        f"<form method=post action='/feedback/offers/{listing_id}'>"
+        f"<input type=hidden name=csrf_token value='{escape(csrf_token, quote=True)}'>"
+        "<fieldset><legend>Ocena</legend>"
+        f"<label><input type=radio name=value value=like required"
+        f"{' checked' if current == 'like' else ''}> Podoba mi się</label>"
+        f"<label><input type=radio name=value value=dislike"
+        f"{' checked' if current == 'dislike' else ''}> Nie podoba mi się</label>"
+        f"<label><input type=radio name=value value=save"
+        f"{' checked' if current == 'save' else ''}> Zapisz na później</label>"
+        "</fieldset><label>Powód odrzucenia (wymagany dla „Nie podoba mi się”):"
+        f"<select name=reason_code><option value=''>Wybierz powód</option>"
+        f"{options}</select></label><label>Komentarz (opcjonalny):"
+        f"<textarea name=comment maxlength=500 rows=3>{comment}</textarea></label>"
+        "<button type=submit>Zapisz feedback</button></form></details>"
     )
 
 

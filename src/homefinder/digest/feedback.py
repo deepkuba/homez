@@ -311,6 +311,53 @@ class SqlAlchemyFeedbackService:
             session.commit()
         return FeedbackEvent(report_id, listing_id, value, now, reason_code, comment)
 
+    def record_authenticated(
+        self,
+        *,
+        method: str,
+        csrf_token: str,
+        expected_csrf: str,
+        value: str,
+        now: datetime,
+        listing_id: str,
+        actor_hash: str,
+        reason_code: str | None = None,
+        comment: str | None = None,
+    ) -> FeedbackEvent:
+        """Record feedback authorized by the private offer browser."""
+        if method.upper() != "POST":
+            raise FeedbackError("feedback requires POST")
+        if not csrf_token or not hmac.compare_digest(csrf_token, expected_csrf):
+            raise FeedbackError("invalid CSRF token")
+        if value not in {"like", "dislike", "save"}:
+            raise FeedbackError("invalid feedback value")
+        reason_code, comment = _validate_details(value, reason_code, comment)
+        report_id = "offer-browser"
+        with self._sessions() as session:
+            recent = session.scalar(
+                select(func.count(FeedbackEventRecord.id)).where(
+                    FeedbackEventRecord.actor_hash == actor_hash,
+                    FeedbackEventRecord.recorded_at > now - timedelta(minutes=1),
+                )
+            )
+            if int(recent or 0) >= self._max_events:
+                raise FeedbackError("feedback rate limit exceeded")
+            session.add(
+                FeedbackEventRecord(
+                    id=uuid4(),
+                    token_hash=None,
+                    report_id=report_id,
+                    listing_id=listing_id,
+                    value=value,
+                    reason_code=reason_code,
+                    comment=comment,
+                    actor_hash=actor_hash,
+                    recorded_at=now,
+                )
+            )
+            session.commit()
+        return FeedbackEvent(report_id, listing_id, value, now, reason_code, comment)
+
 
 def _validate_details(
     value: str, reason_code: str | None, comment: str | None

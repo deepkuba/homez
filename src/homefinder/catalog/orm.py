@@ -437,7 +437,9 @@ class FeedbackEventRecord(Base):
     __tablename__ = "feedback_events"
 
     id: Mapped[UUID] = mapped_column(primary_key=True)
-    token_hash: Mapped[str] = mapped_column(ForeignKey("feedback_tokens.token_hash"))
+    token_hash: Mapped[str | None] = mapped_column(
+        ForeignKey("feedback_tokens.token_hash"), nullable=True
+    )
     report_id: Mapped[str] = mapped_column(String(100))
     listing_id: Mapped[str] = mapped_column(String(100))
     value: Mapped[str] = mapped_column(String(20))

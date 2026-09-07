@@ -88,6 +88,37 @@ def test_offer_browser_is_private_and_filters_by_feedback(tmp_path: Path) -> Non
     assert "Cena &gt; standard" in all_offers.text
     assert "Za wysoka cena" in all_offers.text
     assert "Bez oceny" in all_offers.text
+    assert f"action='/feedback/offers/{rated_id}'" in all_offers.text
+
+    rejected = client.post(
+        f"/feedback/offers/{rated_id}",
+        auth=("homez", "admin-secret"),
+        data={"value": "like", "csrf_token": "wrong"},
+    )
+    assert rejected.status_code == 400
+    csrf = all_offers.cookies["homefinder_offers_csrf"]
+    client.cookies.set("homefinder_offers_csrf", csrf)
+    missing_reason = client.post(
+        f"/feedback/offers/{rated_id}",
+        auth=("homez", "admin-secret"),
+        data={"value": "dislike", "csrf_token": csrf},
+    )
+    assert missing_reason.status_code == 400
+    recorded = client.post(
+        f"/feedback/offers/{rated_id}",
+        auth=("homez", "admin-secret"),
+        data={"value": "like", "csrf_token": csrf},
+        follow_redirects=False,
+    )
+    assert recorded.status_code == 303
+    assert recorded.headers["location"] == "/feedback/offers?feedback=with_feedback"
+    with sessions() as session:
+        events = session.query(FeedbackEventRecord).order_by(
+            FeedbackEventRecord.recorded_at.desc()
+        )
+        assert events.count() == 2
+        assert events.first().value == "like"
+        assert events.first().token_hash is None
 
     rated = client.get(
         "/feedback/offers?feedback=with_feedback", auth=("homez", "admin-secret")
