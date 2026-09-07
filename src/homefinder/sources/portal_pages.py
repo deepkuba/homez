@@ -4,10 +4,13 @@ from __future__ import annotations
 
 import http.client
 import json
+import math
 import re
 from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
+from email.utils import parsedate_to_datetime
 from html.parser import HTMLParser
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
@@ -21,6 +24,17 @@ PageFetcher = Callable[[str, float, int], bytes]
 
 class PageScrapeError(ValueError):
     """A listing page could not be fetched or did not satisfy its contract."""
+
+
+class PageFetchError(PageScrapeError):
+    """A portal rejected or temporarily could not serve a page request."""
+
+    def __init__(
+        self, *, status_code: int, retry_after_seconds: int | None = None
+    ) -> None:
+        self.status_code = status_code
+        self.retry_after_seconds = retry_after_seconds
+        super().__init__("listing page returned an unexpected status")
 
 
 @dataclass(frozen=True, slots=True)
@@ -472,7 +486,12 @@ def _fetch_html(url: str, timeout_seconds: float, max_bytes: int) -> bytes:
         )
         response = connection.getresponse()
         if response.status != 200:
-            raise PageScrapeError("listing page returned an unexpected status")
+            raise PageFetchError(
+                status_code=response.status,
+                retry_after_seconds=_retry_after_seconds(
+                    response.getheader("Retry-After"), datetime.now(timezone.utc)
+                ),
+            )
         content_type = response.getheader("Content-Type", "").casefold()
         if not content_type.startswith(("text/html", "application/xhtml+xml")):
             raise PageScrapeError("listing page returned an unexpected content type")
@@ -484,3 +503,19 @@ def _fetch_html(url: str, timeout_seconds: float, max_bytes: int) -> bytes:
     if len(body) > max_bytes:
         raise PageScrapeError("listing page exceeds the size contract")
     return body
+
+
+def _retry_after_seconds(value: str | None, now: datetime) -> int | None:
+    if value is None:
+        return None
+    try:
+        seconds = int(value)
+    except ValueError:
+        try:
+            target = parsedate_to_datetime(value)
+            if target.tzinfo is None:
+                target = target.replace(tzinfo=timezone.utc)
+            seconds = math.ceil((target - now).total_seconds())
+        except (TypeError, ValueError, OverflowError):
+            return None
+    return max(1, min(seconds, 86_400))

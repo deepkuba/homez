@@ -175,6 +175,37 @@ class WorkflowRepository:
             session.commit()
             return state
 
+    def defer(
+        self,
+        job: ClaimedJob,
+        *,
+        now: datetime,
+        available_at: datetime,
+        code: str,
+        detail: str,
+    ) -> None:
+        """Reschedule provider-directed throttling without a retry-budget check."""
+        with self._sessions() as session:
+            record = self._leased(session, job)
+            record.state = JobState.RETRY_WAIT.value
+            record.available_at = max(_aware(available_at), _aware(now))
+            record.updated_at = now
+            record.last_error_code = code[:100]
+            record.last_error_detail = detail[:500]
+            record.lease_owner = None
+            record.lease_token = None
+            record.lease_expires_at = None
+            attempt = session.get(
+                WorkflowJobAttemptRecord, (record.id, record.attempt_count)
+            )
+            if attempt is None:
+                raise LostLease("workflow attempt is missing")
+            attempt.finished_at = now
+            attempt.outcome = JobState.RETRY_WAIT.value
+            attempt.error_code = code[:100]
+            attempt.error_detail = detail[:500]
+            session.commit()
+
     def reap_expired(self, *, now: datetime) -> int:
         with self._sessions() as session:
             jobs = session.scalars(

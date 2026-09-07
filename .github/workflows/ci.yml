@@ -45,6 +45,7 @@ jobs:
           yamllint -d relaxed
           .github/workflows .github/dependabot.yml
           infra/compose.yaml infra/compose.shared-vps.yaml
+          infra/compose.scraping-vps.yaml infra/compose.nas-scrapers.yaml
       - name: Upload unit evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -136,10 +137,16 @@ jobs:
           export HOMEFINDER_MAIL_SENDER=sender@example.invalid
           export HOMEZ_SECRETS_DIR="$RUNNER_TEMP/homez-secrets"
           export HOMEZ_SCRAPER_SECRETS_DIR="$RUNNER_TEMP/homez-secrets"
+          export HOMEZ_SCRAPER_STATE_DIR="$RUNNER_TEMP/homez-scraper-state"
           export HOMEZ_CONFIG_DIR="$RUNNER_TEMP/homez-config"
           export HOMEZ_STATE_DIR="$RUNNER_TEMP/homez-state"
           install -d -m 0700 "$HOMEZ_SECRETS_DIR" "$HOMEZ_CONFIG_DIR"
           install -d -m 0700 "$HOMEZ_STATE_DIR"
+          install -d -m 0700 "$HOMEZ_SCRAPER_STATE_DIR"
+          for source in olx otodom morizon gratka; do
+            install -d -m 0700 "$HOMEZ_SCRAPER_STATE_DIR/$source"
+            sudo chown 10001:10001 "$HOMEZ_SCRAPER_STATE_DIR/$source"
+          done
           printf '%s' 'fake-compose-password' > \
             "$HOMEZ_SECRETS_DIR/postgres-password"
           database_url='postgresql+psycopg://homefinder:'

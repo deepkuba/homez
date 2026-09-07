@@ -140,6 +140,19 @@ def test_nas_scrapers_are_four_isolated_source_pinned_processes() -> None:
             "--source",
         ]
         assert service["command"][3] == source
+        assert service["command"][4:8] == [
+            "--token-file",
+            "/run/secrets/scraper_token",
+            "--state-file",
+            "/var/lib/homefinder-scraper/rate-limit.json",
+        ]
+        assert service["volumes"] == [
+            {
+                "type": "bind",
+                "source": "${HOMEZ_SCRAPER_STATE_DIR:?set state dir}/" + source,
+                "target": "/var/lib/homefinder-scraper",
+            }
+        ]
         assert len(service["ports"]) == 1
         assert service["ports"][0].startswith("${HOMEZ_NAS_TAILSCALE_IP:?")
         published.add(service["ports"][0])

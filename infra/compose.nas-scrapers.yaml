@@ -27,8 +27,20 @@ services:
       - olx
       - --token-file
       - /run/secrets/scraper_token
+      - --state-file
+      - /var/lib/homefinder-scraper/rate-limit.json
+      - --minimum-interval-seconds
+      - "15"
+      - --jitter-seconds
+      - "5"
+      - --daily-limit
+      - "150"
       - --host
       - 0.0.0.0
+    volumes:
+      - type: bind
+        source: "${HOMEZ_SCRAPER_STATE_DIR:?set state dir}/olx"
+        target: /var/lib/homefinder-scraper
     ports:
       - "${HOMEZ_NAS_TAILSCALE_IP:?set NAS Tailscale IP}:18101:8000"
 
@@ -41,8 +53,20 @@ services:
       - otodom
       - --token-file
       - /run/secrets/scraper_token
+      - --state-file
+      - /var/lib/homefinder-scraper/rate-limit.json
+      - --minimum-interval-seconds
+      - "15"
+      - --jitter-seconds
+      - "5"
+      - --daily-limit
+      - "150"
       - --host
       - 0.0.0.0
+    volumes:
+      - type: bind
+        source: "${HOMEZ_SCRAPER_STATE_DIR:?set state dir}/otodom"
+        target: /var/lib/homefinder-scraper
     ports:
       - "${HOMEZ_NAS_TAILSCALE_IP:?set NAS Tailscale IP}:18102:8000"
 
@@ -55,8 +79,20 @@ services:
       - morizon
       - --token-file
       - /run/secrets/scraper_token
+      - --state-file
+      - /var/lib/homefinder-scraper/rate-limit.json
+      - --minimum-interval-seconds
+      - "15"
+      - --jitter-seconds
+      - "5"
+      - --daily-limit
+      - "150"
       - --host
       - 0.0.0.0
+    volumes:
+      - type: bind
+        source: "${HOMEZ_SCRAPER_STATE_DIR:?set state dir}/morizon"
+        target: /var/lib/homefinder-scraper
     ports:
       - "${HOMEZ_NAS_TAILSCALE_IP:?set NAS Tailscale IP}:18103:8000"
 
@@ -69,8 +105,20 @@ services:
       - gratka
       - --token-file
       - /run/secrets/scraper_token
+      - --state-file
+      - /var/lib/homefinder-scraper/rate-limit.json
+      - --minimum-interval-seconds
+      - "15"
+      - --jitter-seconds
+      - "5"
+      - --daily-limit
+      - "150"
       - --host
       - 0.0.0.0
+    volumes:
+      - type: bind
+        source: "${HOMEZ_SCRAPER_STATE_DIR:?set state dir}/gratka"
+        target: /var/lib/homefinder-scraper
     ports:
       - "${HOMEZ_NAS_TAILSCALE_IP:?set NAS Tailscale IP}:18104:8000"
 

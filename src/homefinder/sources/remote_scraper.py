@@ -21,6 +21,14 @@ MAX_SCRAPER_RESPONSE_BYTES = 64_000
 RemoteRequester = Callable[[str, str, str, float, int], bytes]
 
 
+class RemoteScrapeDeferred(PageScrapeError):
+    """The NAS scraper asked the durable workflow to retry later."""
+
+    def __init__(self, retry_after_seconds: int) -> None:
+        self.retry_after_seconds = max(1, min(retry_after_seconds, 86_400))
+        super().__init__("portal request deferred")
+
+
 class RemotePortalScraper:
     def __init__(
         self,
@@ -28,7 +36,7 @@ class RemotePortalScraper:
         *,
         endpoint: str,
         token_file: Path,
-        timeout_seconds: float = 20.0,
+        timeout_seconds: float = 45.0,
         requester: RemoteRequester | None = None,
     ) -> None:
         if source_key not in supported_portals():
@@ -145,6 +153,8 @@ def _post_scrape(
             },
         )
         response = connection.getresponse()
+        if response.status == 429:
+            raise RemoteScrapeDeferred(_retry_after(response.getheader("Retry-After")))
         if response.status != 200:
             raise PageScrapeError("NAS scraper returned an unexpected status")
         content_type = response.getheader("Content-Type", "").casefold()
@@ -158,3 +168,11 @@ def _post_scrape(
     if len(response_body) > max_bytes:
         raise PageScrapeError("NAS scraper response exceeds the size limit")
     return response_body
+
+
+def _retry_after(value: str | None) -> int:
+    try:
+        parsed = int(value) if value is not None else 300
+    except ValueError:
+        parsed = 300
+    return max(1, min(parsed, 86_400))

@@ -21,6 +21,7 @@ from homefinder.catalog.profile_repository import SqlAlchemyBuyerProfileReposito
 from homefinder.catalog.repository import SqlAlchemyCatalogRepository
 from homefinder.domain.profile import BuyerProfile
 from homefinder.sources.portal_pages import ScrapedListing
+from homefinder.sources.remote_scraper import RemoteScrapeDeferred
 from homefinder.sources.sample_portal import SamplePortalAlertParser
 from homefinder.workflow.models import JobState, LostLease
 from homefinder.workflow.repository import WorkflowRepository, retry_delay
@@ -86,6 +87,35 @@ def test_job_retries_are_durable_and_stale_workers_are_fenced(tmp_path: Path) ->
         assert record is not None
         assert record.state == JobState.SUCCEEDED.value
         assert record.attempt_count == 3
+
+
+def test_rate_limited_job_is_deferred_without_exhausting_retry_budget(
+    tmp_path: Path,
+) -> None:
+    sessions = _sessions(tmp_path)
+    repository = WorkflowRepository(sessions)
+    repository.enqueue(
+        kind="normalize",
+        idempotency_key="normalize:deferred:v1",
+        payload={"snapshot_id": "one"},
+        available_at=NOW,
+        max_attempts=1,
+    )
+    job = repository.claim(worker_id="worker", now=NOW)
+    assert job is not None
+
+    repository.defer(
+        job,
+        now=NOW,
+        available_at=NOW + timedelta(hours=6),
+        code="portal-rate-limited",
+        detail="portal request deferred",
+    )
+
+    assert repository.claim(worker_id="early", now=NOW + timedelta(hours=1)) is None
+    resumed = repository.claim(worker_id="later", now=NOW + timedelta(hours=6))
+    assert resumed is not None
+    assert resumed.attempt_number == 2
 
 
 def test_poll_slots_are_idempotent_and_worker_dispatches_configured_source(
@@ -217,3 +247,28 @@ def test_normalization_uses_listing_details_scraped_by_separate_process(
         assert rules["price"]["state"] == "fail"
         assert rules["price"]["actual"] == "PLN 987,654.00"
     assert calls == ["https://listings.homez.invalid/sample-krk-001"]
+
+
+def test_normalization_honors_nas_scraper_cooldown(tmp_path: Path) -> None:
+    sessions = _sessions(tmp_path)
+    with sessions() as session:
+        AlertIngestionService(
+            parser=SamplePortalAlertParser(),
+            catalog=SqlAlchemyCatalogRepository(session),
+        ).ingest(FIXTURE.read_bytes())
+
+    def scrape(url: str) -> ScrapedListing:
+        raise RemoteScrapeDeferred(21_600)
+
+    workflow = WorkflowService(sessions, listing_scrapers={"sample_portal": scrape})
+    workflow.reconcile_catalog(now=NOW)
+
+    assert workflow.run_once(worker_id="normalize", now=NOW)
+    with sessions() as session:
+        job = session.scalar(
+            select(WorkflowJobRecord).where(WorkflowJobRecord.kind == "normalize")
+        )
+        assert job is not None
+        assert job.state == JobState.RETRY_WAIT.value
+        assert job.available_at == NOW.replace(tzinfo=None) + timedelta(hours=6)
+        assert job.last_error_code == "portal-rate-limited"

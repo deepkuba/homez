@@ -12,8 +12,14 @@ from fastapi import FastAPI, Header, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from starlette.concurrency import run_in_threadpool
 
+from homefinder.scraper.rate_limit import (
+    PortalRateLimiter,
+    RateLimitPolicy,
+    ScrapeDeferred,
+)
 from homefinder.sources.gmail import read_secret_text
 from homefinder.sources.portal_pages import (
+    PageFetchError,
     PageScrapeError,
     PortalPageScraper,
     ScrapedListing,
@@ -32,11 +38,18 @@ def create_scraper_app(
     source_key: str,
     *,
     token_file: Path,
+    state_file: Path | None = None,
+    rate_limit_policy: RateLimitPolicy | None = None,
     scrape: Callable[[str], ScrapedListing] | None = None,
 ) -> FastAPI:
     if source_key not in supported_portals():
         raise ValueError("unsupported scraper source")
     scraper = scrape or PortalPageScraper(source_key).scrape
+    limiter = (
+        PortalRateLimiter(state_file, policy=rate_limit_policy)
+        if state_file is not None
+        else None
+    )
     scrape_lock = Lock()
     application = FastAPI(
         title=f"Homez {source_key} scraper",
@@ -51,7 +64,19 @@ def create_scraper_app(
 
     def locked_scrape(url: str) -> ScrapedListing:
         with scrape_lock:
-            return scraper(url)
+            if limiter is not None:
+                limiter.before_request()
+            try:
+                result = scraper(url)
+            except PageFetchError as error:
+                if limiter is not None and (
+                    error.status_code in {403, 429} or error.status_code >= 500
+                ):
+                    raise limiter.after_failure(error) from error
+                raise
+            if limiter is not None:
+                limiter.after_success()
+            return result
 
     @application.post("/scrape")
     async def scrape_listing(
@@ -68,8 +93,18 @@ def create_scraper_app(
             raise HTTPException(
                 status_code=422, detail="request contract is invalid"
             ) from error
+        except ScrapeDeferred as error:
+            raise HTTPException(
+                status_code=429,
+                detail="portal request deferred",
+                headers={"Retry-After": str(error.retry_after_seconds)},
+            ) from error
         except PageScrapeError as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
+        except RuntimeError as error:
+            raise HTTPException(
+                status_code=503, detail="scraper rate limiter unavailable"
+            ) from error
         if result.source_key != source_key or result_url != canonical_url:
             raise HTTPException(
                 status_code=502, detail="scraper result is inconsistent"

@@ -32,6 +32,8 @@ def test_scraper_server_accepts_only_a_secret_file_path() -> None:
             "olx",
             "--token-file",
             "/run/secrets/scraper_token",
+            "--state-file",
+            "/var/lib/homefinder-scraper/rate-limit.json",
         ]
     )
 

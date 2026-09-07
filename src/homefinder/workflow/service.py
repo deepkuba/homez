@@ -3,7 +3,7 @@
 import hashlib
 import json
 from collections.abc import Callable, Mapping
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from uuid import UUID, uuid5
 
@@ -34,6 +34,7 @@ from homefinder.domain.matching import (
 from homefinder.domain.profile import BuyerProfile
 from homefinder.domain.ranking import RankedCandidate, select_slate
 from homefinder.sources.portal_pages import ScrapedListing
+from homefinder.sources.remote_scraper import RemoteScrapeDeferred
 from homefinder.workflow.models import (
     ClaimedJob,
     ManualReviewRequired,
@@ -169,6 +170,14 @@ class WorkflowService:
                 )
             else:
                 raise PermanentWorkflowError("unknown workflow job kind")
+        except RemoteScrapeDeferred as error:
+            self.jobs.defer(
+                job,
+                now=now,
+                available_at=now + timedelta(seconds=error.retry_after_seconds),
+                code="portal-rate-limited",
+                detail="portal request deferred",
+            )
         except ManualReviewRequired as error:
             self.jobs.fail(
                 job,

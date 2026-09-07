@@ -36,6 +36,7 @@ from homefinder.runtime import (
     run_periodically,
 )
 from homefinder.scraper.app import create_scraper_app
+from homefinder.scraper.rate_limit import RateLimitPolicy
 from homefinder.sources.gmail import (
     EncryptedTokenStore,
     GmailApiClient,
@@ -145,6 +146,10 @@ def _parser() -> argparse.ArgumentParser:
         "--source", required=True, choices=("olx", "otodom", "morizon", "gratka")
     )
     scraper_server.add_argument("--token-file", required=True, type=Path)
+    scraper_server.add_argument("--state-file", required=True, type=Path)
+    scraper_server.add_argument("--minimum-interval-seconds", type=float, default=15)
+    scraper_server.add_argument("--jitter-seconds", type=float, default=5)
+    scraper_server.add_argument("--daily-limit", type=int, default=150)
     scraper_server.add_argument("--host", default="127.0.0.1")
     scraper_server.add_argument("--port", type=int, default=8000)
     return parser
@@ -155,7 +160,16 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.command == "scraper-server":
         read_secret_text(args.token_file)
         uvicorn.run(
-            create_scraper_app(args.source, token_file=args.token_file),
+            create_scraper_app(
+                args.source,
+                token_file=args.token_file,
+                state_file=args.state_file,
+                rate_limit_policy=RateLimitPolicy(
+                    minimum_interval_seconds=args.minimum_interval_seconds,
+                    jitter_seconds=args.jitter_seconds,
+                    daily_limit=args.daily_limit,
+                ),
+            ),
             host=args.host,
             port=args.port,
             access_log=False,

@@ -5,12 +5,17 @@ import pytest
 from fastapi.testclient import TestClient
 
 from homefinder.scraper.app import create_scraper_app
+from homefinder.scraper.rate_limit import ScrapeDeferred
 from homefinder.sources.portal_pages import (
     PageScrapeError,
     PortalPageScraper,
     ScrapedListing,
 )
-from homefinder.sources.remote_scraper import RemotePortalScraper
+from homefinder.sources.remote_scraper import (
+    RemotePortalScraper,
+    RemoteScrapeDeferred,
+    _post_scrape,
+)
 
 PORTALS = (
     (
@@ -202,6 +207,26 @@ def test_scraper_api_requires_token_and_is_pinned_to_one_source(tmp_path) -> Non
     assert calls == [PORTALS[0][1]]
 
 
+def test_scraper_api_exposes_bounded_retry_after(tmp_path) -> None:
+    token_file = tmp_path / "scraper-token"
+    token_file.write_text("test-shared-secret", encoding="ascii")
+    token_file.chmod(0o600)
+
+    def scrape(url: str) -> ScrapedListing:
+        raise ScrapeDeferred(7_200)
+
+    client = TestClient(create_scraper_app("olx", token_file=token_file, scrape=scrape))
+    response = client.post(
+        "/scrape",
+        headers={"Authorization": "Bearer test-shared-secret"},
+        json={"url": PORTALS[0][1]},
+    )
+
+    assert response.status_code == 429
+    assert response.headers["retry-after"] == "7200"
+    assert response.json() == {"detail": "portal request deferred"}
+
+
 def test_remote_scraper_calls_nas_over_tailnet_and_validates_result(tmp_path) -> None:
     token_file = tmp_path / "scraper-token"
     token_file.write_text("test-shared-secret", encoding="ascii")
@@ -262,3 +287,39 @@ def test_remote_scraper_rejects_public_cleartext_endpoint(tmp_path) -> None:
             endpoint="https://nas.example.com:18101",
             token_file=token_file,
         )
+
+
+def test_remote_scraper_propagates_nas_retry_after(monkeypatch) -> None:
+    class Response:
+        status = 429
+
+        def getheader(self, name: str, default: str = "") -> str:
+            return "7200" if name == "Retry-After" else default
+
+    class Connection:
+        def __init__(self, host: str, *, port: int, timeout: float) -> None:
+            pass
+
+        def request(self, method: str, path: str, **kwargs: object) -> None:
+            pass
+
+        def getresponse(self) -> Response:
+            return Response()
+
+        def close(self) -> None:
+            pass
+
+    monkeypatch.setattr(
+        "homefinder.sources.remote_scraper.http.client.HTTPConnection", Connection
+    )
+
+    with pytest.raises(RemoteScrapeDeferred) as captured:
+        _post_scrape(
+            "http://100.100.20.30:18101/scrape",
+            PORTALS[0][1],
+            "test-token",
+            45,
+            64_000,
+        )
+
+    assert captured.value.retry_after_seconds == 7_200

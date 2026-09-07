@@ -10,6 +10,13 @@ This feature does not bypass login, CAPTCHA, `403`, or another portal access
 control. Confirm that page retrieval is permitted for the intended private use
 before setting `page_fetch_enabled` for a source.
 
+Each process makes at most one request at a time, waits 15 seconds plus 0–5
+seconds of random jitter between requests, and permits at most 150 requests per
+UTC day. A portal `Retry-After` response is respected. Without one, `429` and
+`403` pause that source for at least six hours, while `503` starts at five
+minutes; repeated failures use exponential backoff. These counters and
+cooldowns survive container restarts.
+
 ## Network contract
 
 | Source | NAS Tailscale port |
@@ -36,6 +43,22 @@ directory configured as `HOMEZ_SCRAPER_SECRETS_DIR` on the NAS. Do not put the
 value in `.env`, shell history, Compose YAML, or Git. The container user must be
 able to read the file; a typical Linux host uses owner/group `root:10001` and
 mode `0440`.
+
+Create one writable state directory per isolated process. On a Linux-like NAS
+filesystem, replace the example base path if needed:
+
+```bash
+sudo mkdir -p \
+  /volume1/Docker/homez/scraper-state/olx \
+  /volume1/Docker/homez/scraper-state/otodom \
+  /volume1/Docker/homez/scraper-state/morizon \
+  /volume1/Docker/homez/scraper-state/gratka
+sudo chown -R 10001:10001 /volume1/Docker/homez/scraper-state
+sudo chmod 0700 /volume1/Docker/homez/scraper-state/*
+```
+
+Set `HOMEZ_SCRAPER_STATE_DIR=/volume1/Docker/homez/scraper-state` in
+`.env.nas`. Do not share one state file between processes.
 
 ## Start the four NAS processes
 
