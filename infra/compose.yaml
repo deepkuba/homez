@@ -71,6 +71,7 @@ services:
       <<: *app-environment
       HOMEFINDER_FEEDBACK_RATE_SALT_FILE: /run/secrets/feedback_rate_salt
       HOMEFINDER_ADMIN_BEARER_TOKEN_FILE: /run/secrets/admin_bearer_token
+      HOMEFINDER_REPORT_RECIPIENT_FILE: /run/secrets/report_recipient
     depends_on:
       db:
         condition: service_healthy
@@ -80,6 +81,7 @@ services:
       - database_url
       - feedback_rate_salt
       - admin_bearer_token
+      - report_recipient
     networks:
       - backend
       - frontend

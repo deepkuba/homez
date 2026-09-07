@@ -387,7 +387,11 @@ class DeliveryWorker:
                     )
                 acknowledgement = self._transport.send(
                     recipient=claim.recipient,
-                    subject=f"Homefinder weekly report {claim.period}",
+                    subject=(
+                        "Homefinder manual report"
+                        if claim.period.startswith("M")
+                        else f"Homefinder weekly report {claim.period}"
+                    ),
                     html_body=html_body,
                     text_body=report.text_body,
                     idempotency_key=f"homez:{claim.period}:{claim.report_id}",

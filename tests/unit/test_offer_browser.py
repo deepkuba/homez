@@ -3,6 +3,7 @@ from decimal import Decimal
 from pathlib import Path
 from uuid import UUID, uuid4
 
+import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
@@ -16,6 +17,7 @@ from homefinder.catalog.orm import (
     SourceRecord,
 )
 from homefinder.config import Settings
+from homefinder.web import app as web_app
 from homefinder.web.app import create_app
 
 NOW = datetime(2026, 9, 7, 8, tzinfo=timezone.utc)
@@ -27,7 +29,9 @@ def _private(path: Path, value: str) -> Path:
     return path
 
 
-def test_offer_browser_is_private_and_filters_by_feedback(tmp_path: Path) -> None:
+def test_offer_browser_is_private_and_filters_by_feedback(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     database = tmp_path / "offers.sqlite"
     engine = create_engine(f"sqlite+pysqlite:///{database}")
     Base.metadata.create_all(engine)
@@ -89,6 +93,7 @@ def test_offer_browser_is_private_and_filters_by_feedback(tmp_path: Path) -> Non
     assert "Za wysoka cena" in all_offers.text
     assert "Bez oceny" in all_offers.text
     assert f"action='/feedback/offers/{rated_id}'" in all_offers.text
+    assert "action='/feedback/offers/report'" in all_offers.text
 
     rejected = client.post(
         f"/feedback/offers/{rated_id}",
@@ -98,6 +103,21 @@ def test_offer_browser_is_private_and_filters_by_feedback(tmp_path: Path) -> Non
     assert rejected.status_code == 400
     csrf = all_offers.cookies["homefinder_offers_csrf"]
     client.cookies.set("homefinder_offers_csrf", csrf)
+    queued: list[bool] = []
+    monkeypatch.setattr(
+        web_app,
+        "_queue_manual_report",
+        lambda *_args, **_kwargs: queued.append(True),
+    )
+    manual_report = client.post(
+        "/feedback/offers/report",
+        auth=("homez", "admin-secret"),
+        data={"csrf_token": csrf},
+        follow_redirects=False,
+    )
+    assert manual_report.status_code == 303
+    assert manual_report.headers["location"] == "/feedback/offers?report=queued"
+    assert queued == [True]
     missing_reason = client.post(
         f"/feedback/offers/{rated_id}",
         auth=("homez", "admin-secret"),

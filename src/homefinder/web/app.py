@@ -19,9 +19,11 @@ from homefinder.catalog.orm import (
     FeedbackEventRecord,
     ListingRecord,
     ListingSnapshotRecord,
+    ReportDraftRecord,
     SourceRecord,
 )
 from homefinder.config import Environment, Settings
+from homefinder.digest.delivery import DeliveryOutbox
 from homefinder.digest.feedback import (
     FeedbackError,
     SqlAlchemyFeedbackService,
@@ -30,6 +32,8 @@ from homefinder.enrichment.environment import ManualCorrectionStore
 from homefinder.operations.health import HealthRegistry, HealthState
 from homefinder.operations.logging import setup_logging
 from homefinder.sources.gmail import TokenError, read_secret_text
+from homefinder.workflow.models import ManualReviewRequired
+from homefinder.workflow.service import WorkflowService
 
 
 class CorrectionPayload(BaseModel):
@@ -94,6 +98,7 @@ def create_app(
         authorization: str | None = Header(default=None),
         feedback: Literal["all", "with_feedback", "without_feedback"] = "all",
         page: int = 1,
+        report: Literal["queued"] | None = None,
     ) -> HTMLResponse:
         _require_offer_browser_admin(application.state.settings, authorization)
         if page < 1:
@@ -105,6 +110,7 @@ def create_app(
                 feedback_filter=feedback,
                 page=page,
                 csrf_token=csrf,
+                report_status=report,
             )
         )
         response.set_cookie(
@@ -117,6 +123,35 @@ def create_app(
             path="/feedback/offers",
         )
         return response
+
+    @application.post("/feedback/offers/report")
+    async def manual_report(
+        request: Request,
+        authorization: str | None = Header(default=None),
+    ) -> RedirectResponse:
+        _require_offer_browser_admin(application.state.settings, authorization)
+        body = await request.body()
+        if len(body) > 1024:
+            raise HTTPException(status_code=413, detail="request is too large")
+        try:
+            values = parse_qs(body.decode("utf-8"), strict_parsing=True)
+            submitted_csrf = values["csrf_token"][0]
+        except (KeyError, IndexError, TypeError, ValueError, UnicodeError) as error:
+            raise HTTPException(
+                status_code=400, detail="invalid report request"
+            ) from error
+        expected_csrf = request.cookies.get("homefinder_offers_csrf", "")
+        if not submitted_csrf or not hmac.compare_digest(submitted_csrf, expected_csrf):
+            raise HTTPException(status_code=400, detail="invalid CSRF token")
+        try:
+            _queue_manual_report(
+                application.state.settings,
+                application.state.sessions,
+                now=datetime.now(timezone.utc),
+            )
+        except ManualReviewRequired as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+        return RedirectResponse("/feedback/offers?report=queued", status_code=303)
 
     @application.post("/feedback/offers/{listing_id}")
     async def offer_feedback(
@@ -409,6 +444,7 @@ def _render_offer_browser(
     feedback_filter: str,
     page: int,
     csrf_token: str,
+    report_status: str | None,
     page_size: int = 50,
 ) -> str:
     with sessions() as session:
@@ -484,6 +520,16 @@ def _render_offer_browser(
         has_previous=page > 1,
         has_next=start + page_size < total,
     )
+    notice = (
+        "<p class=notice>Raport został przygotowany i dodany do kolejki wysyłki.</p>"
+        if report_status == "queued"
+        else ""
+    )
+    report_form = (
+        "<form method=post action='/feedback/offers/report'>"
+        f"<input type=hidden name=csrf_token value='{escape(csrf_token, quote=True)}'>"
+        "<button type=submit>Wygeneruj i wyślij raport teraz</button></form>"
+    )
     return (
         "<!doctype html><html lang=pl><meta charset=utf-8>"
         "<meta name=viewport content='width=device-width'><title>Oferty Homez</title>"
@@ -496,8 +542,10 @@ def _render_offer_browser(
         ".feedback{background:#f4f5f6;padding:.7rem;border-radius:.4rem}"
         "details{margin-top:.8rem}fieldset{border:0;padding:0}label{display:block;"
         "margin:.4rem 0}select,textarea,button{font:inherit;padding:.45rem;"
-        "max-width:100%}textarea{width:100%;box-sizing:border-box}</style>"
-        f"<body><main><h1>Oferty Homez</h1><nav aria-label='Filtr ofert'>{tabs}</nav>"
+        "max-width:100%}textarea{width:100%;box-sizing:border-box}"
+        ".notice{background:#e6f4ea;padding:.7rem;border-radius:.4rem}</style>"
+        f"<body><main><h1>Oferty Homez</h1>{notice}{report_form}"
+        f"<nav aria-label='Filtr ofert'>{tabs}</nav>"
         f"<p>Wyników: {total}</p>{cards}{navigation}</main></body></html>"
     )
 
@@ -595,6 +643,49 @@ def _offer_navigation(
         )
         links.append(f"<a href='{href}'>Następna →</a>")
     return f"<nav aria-label='Stronicowanie'>{''.join(links)}</nav>"
+
+
+def _queue_manual_report(
+    settings: Settings,
+    sessions: sessionmaker[Session],
+    *,
+    now: datetime,
+) -> None:
+    if settings.report_recipient_file is None:
+        raise HTTPException(status_code=503, detail="report recipient unavailable")
+    period = "M" + _base36(int(now.timestamp() // 60)).rjust(7, "0")[-7:]
+    report_id = WorkflowService(sessions).prepare_report(
+        period=period,
+        cutoff_at=now,
+        routing_goal_version=1,
+        now=now,
+    )
+    with sessions() as session:
+        report = session.get(ReportDraftRecord, report_id)
+    if report is None or report.status != "prepared":
+        raise HTTPException(status_code=503, detail="report preparation failed")
+    try:
+        recipient = read_secret_text(settings.report_recipient_file)
+    except TokenError as error:
+        raise HTTPException(
+            status_code=503, detail="report recipient unavailable"
+        ) from error
+    DeliveryOutbox(sessions).enqueue(
+        period=period,
+        report_id=str(report.id),
+        recipient=recipient,
+        render_version=report.render_version,
+        now=now,
+    )
+
+
+def _base36(value: int) -> str:
+    alphabet = "0123456789abcdefghijklmnopqrstuvwxyz"
+    encoded = ""
+    while value:
+        value, remainder = divmod(value, len(alphabet))
+        encoded = alphabet[remainder] + encoded
+    return encoded or "0"
 
 
 app = create_app()

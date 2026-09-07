@@ -60,6 +60,7 @@ class FakeTransport(MailTransport):
     def __init__(self, *, fail_once: bool = False) -> None:
         self.fail_once = fail_once
         self.keys: list[str] = []
+        self.subjects: list[str] = []
         self.html_bodies: list[str] = []
         self.text_bodies: list[str] = []
 
@@ -72,8 +73,9 @@ class FakeTransport(MailTransport):
         text_body: str,
         idempotency_key: str,
     ) -> MailAcknowledgement:
-        del recipient, subject
+        del recipient
         self.keys.append(idempotency_key)
+        self.subjects.append(subject)
         self.html_bodies.append(html_body)
         self.text_bodies.append(text_body)
         if self.fail_once:
@@ -131,11 +133,29 @@ def test_acknowledged_delivery_is_never_claimed_twice(tmp_path: Path) -> None:
     assert worker.run_once(now=NOW)
     assert not worker.run_once(now=NOW + timedelta(days=1))
     assert transport.keys == [f"homez:2026-W36:{report_id}"]
+    assert transport.subjects == ["Homefinder weekly report 2026-W36"]
     with sessions() as session:
         record = session.get(DigestDeliveryRecord, "2026-W36")
         assert record is not None
         assert record.state == DeliveryState.SENT.value
         assert record.provider_message_id is not None
+
+
+def test_manual_delivery_has_a_clear_subject(tmp_path: Path) -> None:
+    sessions = _sessions(tmp_path)
+    report_id = _report(sessions, period="M00abc12")
+    outbox = DeliveryOutbox(sessions)
+    outbox.enqueue(
+        period="M00abc12",
+        report_id=report_id,
+        recipient="buyer@example.invalid",
+        render_version="digest-v1",
+        now=NOW,
+    )
+    transport = FakeTransport()
+
+    assert DeliveryWorker(sessions, outbox, transport).run_once(now=NOW)
+    assert transport.subjects == ["Homefinder manual report"]
 
 
 def test_pre_ack_failure_retries_with_same_provider_idempotency_key(
