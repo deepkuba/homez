@@ -20,3 +20,23 @@ def test_backup_commands_do_not_accept_secrets_on_command_line(command: str) -> 
 
     with pytest.raises(SystemExit):
         parser.parse_args([command, positional, "--encryption-key", "secret"])
+
+
+def test_scraper_server_accepts_only_a_secret_file_path() -> None:
+    parser = _parser()
+
+    parsed = parser.parse_args(
+        [
+            "scraper-server",
+            "--source",
+            "olx",
+            "--token-file",
+            "/run/secrets/scraper_token",
+        ]
+    )
+
+    assert parsed.source == "olx"
+    with pytest.raises(SystemExit):
+        parser.parse_args(
+            ["scraper-server", "--source", "olx", "--token", "secret-value"]
+        )

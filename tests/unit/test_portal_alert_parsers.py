@@ -1,9 +1,15 @@
 import base64
+import json
 from pathlib import Path
 
 import pytest
 
-from homefinder.cli import _gmail_pollers, _portal_parser
+from homefinder.cli import (
+    _gmail_pollers,
+    _load_source_policy,
+    _portal_parser,
+    _remote_scrapers,
+)
 from homefinder.config import Settings
 from homefinder.sources.errors import AlertParseError
 from homefinder.sources.policy import SourcePolicy
@@ -310,6 +316,63 @@ def test_runtime_registers_olx_and_preserves_multi_value_source_policy() -> None
     assert parser.allowed_hosts == policy.allowed_hosts
     assert parser.max_message_bytes == 400_000
     assert "olx" in _gmail_pollers(Settings())
+
+
+def test_runtime_policy_requires_explicit_boolean_to_enable_nas_scraping(
+    tmp_path: Path,
+) -> None:
+    policy_file = tmp_path / "policy.json"
+    policy_file.write_text(
+        json.dumps(
+            {
+                "sources": {
+                    "olx": {
+                        "enabled": True,
+                        "allowed_senders": ["alerts@example.com"],
+                        "allowed_hosts": ["www.olx.pl"],
+                        "page_fetch_enabled": True,
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    assert _load_source_policy(policy_file, "olx").page_fetch_enabled is True
+
+    invalid = json.loads(policy_file.read_text())
+    invalid["sources"]["olx"]["page_fetch_enabled"] = "true"
+    policy_file.write_text(json.dumps(invalid), encoding="utf-8")
+    with pytest.raises(SystemExit, match="source policy file is invalid"):
+        _load_source_policy(policy_file, "olx")
+
+
+def test_runtime_builds_only_explicitly_enabled_remote_scraper(tmp_path: Path) -> None:
+    policy_file = tmp_path / "policy.json"
+    policy_file.write_text(
+        json.dumps(
+            {
+                "sources": {
+                    source: {
+                        "enabled": True,
+                        "allowed_senders": ["alerts@example.com"],
+                        "allowed_hosts": [f"www.{source}.pl"],
+                        "page_fetch_enabled": source == "olx",
+                    }
+                    for source in ("olx", "otodom", "morizon", "gratka")
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    settings = Settings(
+        gmail_source_policy_file=policy_file,
+        scraper_token_file=tmp_path / "scraper-token",
+        scraper_olx_endpoint="http://100.100.20.30:18101",
+        _env_file=None,
+    )
+
+    assert set(_remote_scrapers(settings)) == {"olx"}
 
 
 @pytest.mark.parametrize(

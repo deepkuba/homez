@@ -1,0 +1,18 @@
+services:
+  workflow-worker:
+    environment:
+      HOMEFINDER_SCRAPER_TOKEN_FILE: /run/secrets/scraper_token
+      HOMEFINDER_SCRAPER_OLX_ENDPOINT: >-
+        ${HOMEFINDER_SCRAPER_OLX_ENDPOINT:?set OLX NAS scraper endpoint}
+      HOMEFINDER_SCRAPER_OTODOM_ENDPOINT: >-
+        ${HOMEFINDER_SCRAPER_OTODOM_ENDPOINT:?set Otodom NAS scraper endpoint}
+      HOMEFINDER_SCRAPER_MORIZON_ENDPOINT: >-
+        ${HOMEFINDER_SCRAPER_MORIZON_ENDPOINT:?set Morizon NAS scraper endpoint}
+      HOMEFINDER_SCRAPER_GRATKA_ENDPOINT: >-
+        ${HOMEFINDER_SCRAPER_GRATKA_ENDPOINT:?set Gratka NAS scraper endpoint}
+    secrets:
+      - scraper_token
+
+secrets:
+  scraper_token:
+    file: "${HOMEZ_SECRETS_DIR:?set HOMEZ_SECRETS_DIR}/scraper-token"

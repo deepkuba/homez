@@ -19,9 +19,11 @@ from homefinder.catalog.orm import (
     ReportDraftRecord,
     ReportItemRecord,
     SourceMessageItemRecord,
+    SourceRecord,
 )
 from homefinder.catalog.profile_repository import SqlAlchemyBuyerProfileRepository
 from homefinder.digest.render import Digest, DigestItem, render_digest
+from homefinder.domain.costs import CostEstimate
 from homefinder.domain.matching import (
     MatchExplanation,
     PropertyFacts,
@@ -31,6 +33,7 @@ from homefinder.domain.matching import (
 )
 from homefinder.domain.profile import BuyerProfile
 from homefinder.domain.ranking import RankedCandidate, select_slate
+from homefinder.sources.portal_pages import ScrapedListing
 from homefinder.workflow.models import (
     ClaimedJob,
     ManualReviewRequired,
@@ -38,7 +41,7 @@ from homefinder.workflow.models import (
 )
 from homefinder.workflow.repository import WorkflowRepository
 
-NORMALIZER_VERSION = "catalog-v1"
+NORMALIZER_VERSION = "catalog-page-v1"
 MATCHER_VERSION = "rules-v1"
 SELECTION_VERSION = "slate-v1"
 RENDER_VERSION = "digest-v2"
@@ -51,9 +54,11 @@ class WorkflowService:
         sessions: sessionmaker[Session],
         *,
         pollers: Mapping[str, Callable[[], object]] | None = None,
+        listing_scrapers: Mapping[str, Callable[[str], ScrapedListing]] | None = None,
     ) -> None:
         self._sessions = sessions
         self._pollers = dict(pollers or {})
+        self._listing_scrapers = dict(listing_scrapers or {})
         self.jobs = WorkflowRepository(sessions)
 
     def enqueue_poll(self, *, source_key: str, scheduled_at: datetime) -> UUID:
@@ -69,7 +74,11 @@ class WorkflowService:
         enqueued = 0
         with self._sessions() as session:
             items = session.scalars(select(SourceMessageItemRecord)).all()
-            fact_sets = session.scalars(select(CandidateFactSetRecord)).all()
+            fact_sets = session.scalars(
+                select(CandidateFactSetRecord).where(
+                    CandidateFactSetRecord.normalizer_version == NORMALIZER_VERSION
+                )
+            ).all()
             try:
                 active_profile_version = (
                     SqlAlchemyBuyerProfileRepository(session).active().version
@@ -222,21 +231,53 @@ class WorkflowService:
                 snapshot = session.get(ListingSnapshotRecord, snapshot_id)
                 if listing is None or snapshot is None:
                     raise PermanentWorkflowError("catalog input is missing")
+                source = session.get(SourceRecord, listing.source_id)
+                if source is None:
+                    raise PermanentWorkflowError("listing source is missing")
+                scraped = self._scrape_listing(source.key, listing)
                 payload = {
                     "candidate_id": str(candidate_id),
                     "listing_id": str(listing_id),
                     "snapshot_id": str(snapshot_id),
-                    "title": listing.title,
+                    "title": scraped.title if scraped is not None else listing.title,
                     "canonical_url": listing.canonical_url,
-                    "locality": snapshot.location,
-                    "purchase_price_minor": snapshot.price_minor,
+                    "locality": (
+                        scraped.location
+                        if scraped is not None and scraped.location is not None
+                        else snapshot.location
+                    ),
+                    "purchase_price_minor": (
+                        scraped.price_minor
+                        if scraped is not None and scraped.price_minor is not None
+                        else snapshot.price_minor
+                    ),
+                    "currency": (
+                        scraped.currency
+                        if scraped is not None and scraped.currency is not None
+                        else snapshot.currency
+                    ),
                     "area_sqm": (
-                        str(snapshot.area_sqm)
+                        str(scraped.area_sqm)
+                        if scraped is not None and scraped.area_sqm is not None
+                        else str(snapshot.area_sqm)
                         if snapshot.area_sqm is not None
                         else None
                     ),
-                    "rooms": snapshot.rooms,
-                    "availability": snapshot.availability,
+                    "rooms": (
+                        scraped.rooms
+                        if scraped is not None and scraped.rooms is not None
+                        else snapshot.rooms
+                    ),
+                    "availability": (
+                        scraped.availability
+                        if scraped is not None and scraped.availability != "unknown"
+                        else snapshot.availability
+                    ),
+                    "description": (
+                        scraped.description
+                        if scraped is not None and scraped.description
+                        else snapshot.description
+                    ),
                 }
                 encoded = _canonical(payload)
                 facts_hash = _sha(encoded)
@@ -247,9 +288,12 @@ class WorkflowService:
                             for key in (
                                 "canonical_url",
                                 "purchase_price_minor",
+                                "currency",
                                 "area_sqm",
                                 "rooms",
                                 "availability",
+                                "locality",
+                                "description",
                             )
                         }
                     )
@@ -281,6 +325,20 @@ class WorkflowService:
             available_at=now,
             parent_job_id=job.id,
         )
+
+    def _scrape_listing(
+        self, source_key: str, listing: ListingRecord
+    ) -> ScrapedListing | None:
+        scraper = self._listing_scrapers.get(source_key)
+        if scraper is None:
+            return None
+        scraped = scraper(listing.canonical_url)
+        if (
+            scraped.source_key != source_key
+            or scraped.canonical_url != listing.canonical_url
+        ):
+            raise PermanentWorkflowError("scraped listing identity is inconsistent")
+        return scraped
 
     def _enrich(self, job: ClaimedJob, *, now: datetime) -> None:
         fact_set_id = UUID(_text(job.payload, "fact_set_id"))
@@ -510,7 +568,15 @@ def _facts_from_payload(
         id=str(fact_set.candidate_id),
         title=str(payload["title"]),
         locality=(str(payload["locality"]) if payload.get("locality") else None),
-        cost=None,
+        cost=(
+            CostEstimate(
+                purchase_price_minor=_object_int(
+                    payload.get("purchase_price_minor"), "purchase_price_minor"
+                )
+            )
+            if payload.get("purchase_price_minor") is not None
+            else None
+        ),
         area_sqm=(
             Decimal(str(payload["area_sqm"]))
             if payload.get("area_sqm") is not None

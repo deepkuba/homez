@@ -1,8 +1,10 @@
 # Portal email parser contracts
 
 Issue #19 records approval for receiving portal-provided email alerts as the MVP
-access method. It does not approve page fetching. The Otodom, Morizon, Gratka,
-and OLX parsers therefore operate only on supplied email bytes.
+access method. The Otodom, Morizon, Gratka, and OLX email parsers continue to
+operate only on supplied email bytes. Page retrieval is a separate, explicitly
+enabled adapter hosted on the buyer's NAS; see
+[`nas-scrapers.md`](../nas-scrapers.md).
 
 The `portal-email-v3` contract is backed by minimal synthetic fixtures in
 `data/email_examples/`. Source identity comes from the source-specific sender
@@ -46,7 +48,15 @@ message and a representative layout variant) and verify that direct listing
 URLs plus the required numeric and location fields survive sanitization. Never
 add click-tracking hosts to `allowed_hosts` to make a fixture pass.
 
-All source policies keep `page_fetch_enabled=False`: redirect normalization reads
-headers but never fetches a listing page. Enabling any parser in live polling
-requires a reviewed sender configuration and the governance controls in #130;
-enabling page retrieval requires a separate explicit approval.
+Source policies default to `page_fetch_enabled=False`: redirect normalization
+reads headers but never fetches a listing page. When the buyer explicitly enables
+the boolean for a source, the VPS sends only its validated canonical listing URL
+to that source's authenticated NAS process. The page scraper accepts one exact
+portal host/path contract, bounds response size and time, does not follow
+redirects, and prefers Schema.org JSON-LD. Missing optional fields retain values
+from the email alert. A blocked or malformed response is treated as a retryable
+workflow failure; the scraper does not evade access controls.
+
+Enabling live polling still requires a reviewed sender configuration and the
+governance controls in #130. Page fetching additionally requires a source-specific
+terms review and the NAS/Tailscale controls described in the runbook.

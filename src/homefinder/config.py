@@ -48,6 +48,11 @@ class Settings(BaseSettings):
     feedback_rate_salt_file: Path | None = None
     admin_bearer_token_file: Path | None = None
     backup_key_file: Path | None = None
+    scraper_token_file: Path | None = None
+    scraper_olx_endpoint: str | None = None
+    scraper_otodom_endpoint: str | None = None
+    scraper_morizon_endpoint: str | None = None
+    scraper_gratka_endpoint: str | None = None
 
     @model_validator(mode="after")
     def validate_database(self) -> Settings:

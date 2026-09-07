@@ -1,4 +1,6 @@
+import json
 from datetime import datetime, timedelta, timezone
+from decimal import Decimal
 from pathlib import Path
 
 import pytest
@@ -8,6 +10,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from homefinder.application.ingest_alert import AlertIngestionService
 from homefinder.catalog.orm import (
     Base,
+    CandidateFactSetRecord,
     CandidateMatchEvaluationRecord,
     CandidatePresentationRecord,
     ReportDraftRecord,
@@ -17,6 +20,7 @@ from homefinder.catalog.orm import (
 from homefinder.catalog.profile_repository import SqlAlchemyBuyerProfileRepository
 from homefinder.catalog.repository import SqlAlchemyCatalogRepository
 from homefinder.domain.profile import BuyerProfile
+from homefinder.sources.portal_pages import ScrapedListing
 from homefinder.sources.sample_portal import SamplePortalAlertParser
 from homefinder.workflow.models import JobState, LostLease
 from homefinder.workflow.repository import WorkflowRepository, retry_delay
@@ -155,3 +159,61 @@ def test_sanitized_alert_reaches_idempotent_unknown_safe_report(
         assert (
             session.scalar(select(func.count(CandidateMatchEvaluationRecord.id))) == 1
         )
+
+
+def test_normalization_uses_listing_details_scraped_by_separate_process(
+    tmp_path: Path,
+) -> None:
+    sessions = _sessions(tmp_path)
+    with sessions() as session:
+        AlertIngestionService(
+            parser=SamplePortalAlertParser(),
+            catalog=SqlAlchemyCatalogRepository(session),
+        ).ingest(FIXTURE.read_bytes())
+        profiles = SqlAlchemyBuyerProfileRepository(session)
+        profiles.add_draft(BuyerProfile(), created_at=NOW)
+        profiles.approve(1, approved_by="buyer", approved_at=NOW)
+    calls: list[str] = []
+
+    def scrape(url: str) -> ScrapedListing:
+        calls.append(url)
+        return ScrapedListing(
+            source_key="sample_portal",
+            source_listing_id="sample-krk-001",
+            canonical_url=url,
+            title="Pelny tytul ze strony",
+            price_minor=987_654_00,
+            currency="PLN",
+            area_sqm=Decimal("63.25"),
+            rooms=3,
+            location="Krakow, Bronowice",
+            description="Pelny opis ze strony oferty",
+            availability="active",
+        )
+
+    workflow = WorkflowService(sessions, listing_scrapers={"sample_portal": scrape})
+    workflow.reconcile_catalog(now=NOW)
+    assert workflow.run_once(worker_id="normalize", now=NOW)
+
+    with sessions() as session:
+        facts = session.scalar(select(CandidateFactSetRecord))
+        assert facts is not None
+        payload = json.loads(facts.facts_json)
+        assert payload["title"] == "Pelny tytul ze strony"
+        assert payload["purchase_price_minor"] == 987_654_00
+        assert payload["area_sqm"] == "63.25"
+        assert payload["rooms"] == 3
+        assert payload["locality"] == "Krakow, Bronowice"
+        assert payload["description"] == "Pelny opis ze strony oferty"
+        assert payload["availability"] == "active"
+    workflow.run_until_idle(worker_id="match", now=NOW)
+    with sessions() as session:
+        evaluation = session.scalar(select(CandidateMatchEvaluationRecord))
+        assert evaluation is not None
+        rules = {
+            rule["name"]: rule
+            for rule in json.loads(evaluation.explanation_json)["rules"]
+        }
+        assert rules["price"]["state"] == "fail"
+        assert rules["price"]["actual"] == "PLN 987,654.00"
+    assert calls == ["https://listings.homez.invalid/sample-krk-001"]

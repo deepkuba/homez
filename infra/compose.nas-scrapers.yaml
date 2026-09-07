@@ -1,0 +1,79 @@
+x-scraper: &scraper
+  image: >-
+    ${HOMEZ_IMAGE:?set image}:${HOMEZ_IMAGE_TAG:?set tag}
+  user: "10001:10001"
+  init: true
+  read_only: true
+  restart: unless-stopped
+  tmpfs:
+    - /tmp:size=16m,mode=1777
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+  pids_limit: 128
+  mem_limit: 256m
+  cpus: 0.5
+  secrets:
+    - scraper_token
+
+services:
+  scraper-olx:
+    <<: *scraper
+    command:
+      - homefinder
+      - scraper-server
+      - --source
+      - olx
+      - --token-file
+      - /run/secrets/scraper_token
+      - --host
+      - 0.0.0.0
+    ports:
+      - "${HOMEZ_NAS_TAILSCALE_IP:?set NAS Tailscale IP}:18101:8000"
+
+  scraper-otodom:
+    <<: *scraper
+    command:
+      - homefinder
+      - scraper-server
+      - --source
+      - otodom
+      - --token-file
+      - /run/secrets/scraper_token
+      - --host
+      - 0.0.0.0
+    ports:
+      - "${HOMEZ_NAS_TAILSCALE_IP:?set NAS Tailscale IP}:18102:8000"
+
+  scraper-morizon:
+    <<: *scraper
+    command:
+      - homefinder
+      - scraper-server
+      - --source
+      - morizon
+      - --token-file
+      - /run/secrets/scraper_token
+      - --host
+      - 0.0.0.0
+    ports:
+      - "${HOMEZ_NAS_TAILSCALE_IP:?set NAS Tailscale IP}:18103:8000"
+
+  scraper-gratka:
+    <<: *scraper
+    command:
+      - homefinder
+      - scraper-server
+      - --source
+      - gratka
+      - --token-file
+      - /run/secrets/scraper_token
+      - --host
+      - 0.0.0.0
+    ports:
+      - "${HOMEZ_NAS_TAILSCALE_IP:?set NAS Tailscale IP}:18104:8000"
+
+secrets:
+  scraper_token:
+    file: "${HOMEZ_SCRAPER_SECRETS_DIR:?set secrets dir}/scraper-token"

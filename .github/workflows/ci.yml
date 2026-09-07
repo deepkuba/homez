@@ -129,11 +129,13 @@ jobs:
           export HOMEZ_ACME_EMAIL=owner@example.com
           export HOMEZ_FRONTEND_SUBNET=172.30.138.0/28
           export HOMEZ_TRUSTED_PROXY_IP=172.30.138.1
+          export HOMEZ_NAS_TAILSCALE_IP=100.64.0.10
           export HOMEFINDER_MAIL_API_ENDPOINT=\
           https://sandbox.api.mailtrap.io/api/send/4015
           export HOMEFINDER_MAIL_API_HOST=sandbox.api.mailtrap.io
           export HOMEFINDER_MAIL_SENDER=sender@example.invalid
           export HOMEZ_SECRETS_DIR="$RUNNER_TEMP/homez-secrets"
+          export HOMEZ_SCRAPER_SECRETS_DIR="$RUNNER_TEMP/homez-secrets"
           export HOMEZ_CONFIG_DIR="$RUNNER_TEMP/homez-config"
           export HOMEZ_STATE_DIR="$RUNNER_TEMP/homez-state"
           install -d -m 0700 "$HOMEZ_SECRETS_DIR" "$HOMEZ_CONFIG_DIR"
@@ -155,6 +157,8 @@ jobs:
             "$HOMEZ_SECRETS_DIR/feedback-rate-salt"
           printf '%s' 'fake-admin-token' > \
             "$HOMEZ_SECRETS_DIR/admin-bearer-token"
+          printf '%s' 'fake-scraper-token' > \
+            "$HOMEZ_SECRETS_DIR/scraper-token"
           printf '%s' 'ZmFrZS1iYWNrdXAta2V5LWZvci1jaQ==' > \
             "$HOMEZ_SECRETS_DIR/backup-key"
           sudo chown root:10001 "$HOMEZ_SECRETS_DIR"/*
@@ -174,6 +178,20 @@ jobs:
               -f infra/compose.yaml \
               -f infra/compose.shared-vps.yaml "$@"
           }
+          scraping_compose() {
+            HOMEFINDER_SCRAPER_OLX_ENDPOINT=http://100.64.0.10:18101 \
+            HOMEFINDER_SCRAPER_OTODOM_ENDPOINT=http://100.64.0.10:18102 \
+            HOMEFINDER_SCRAPER_MORIZON_ENDPOINT=http://100.64.0.10:18103 \
+            HOMEFINDER_SCRAPER_GRATKA_ENDPOINT=http://100.64.0.10:18104 \
+            docker compose --project-name homez-scraping-ci \
+              -f infra/compose.yaml \
+              -f infra/compose.shared-vps.yaml \
+              -f infra/compose.scraping-vps.yaml "$@"
+          }
+          nas_scrapers() {
+            docker compose --project-name homez-nas-ci \
+              -f infra/compose.nas-scrapers.yaml "$@"
+          }
           cleanup() {
             compose down --volumes --remove-orphans
           }
@@ -181,6 +199,10 @@ jobs:
           compose config > "$RUNNER_TEMP/homez-compose.rendered"
           shared_compose config --format json > \
             "$RUNNER_TEMP/homez-shared-compose.json"
+          scraping_compose config > \
+            "$RUNNER_TEMP/homez-scraping-compose.rendered"
+          nas_scrapers config --format json > \
+            "$RUNNER_TEMP/homez-nas-compose.json"
           python - "$RUNNER_TEMP/homez-shared-compose.json" <<'PY'
           import json
           import sys
@@ -213,6 +235,8 @@ jobs:
           ! grep -F 'fake-compose-password' \
             "$RUNNER_TEMP/homez-compose.rendered"
           ! grep -F 'fake-mail-token' "$RUNNER_TEMP/homez-compose.rendered"
+          ! grep -F 'fake-scraper-token' \
+            "$RUNNER_TEMP/homez-scraping-compose.rendered"
           compose run --rm --no-deps workflow-worker sh -c \
             'test -r /var/lib/homefinder/gmail-token.json &&
             touch /var/lib/homefinder/.write-probe &&

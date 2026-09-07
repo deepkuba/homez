@@ -117,6 +117,48 @@ def test_shared_vps_override_exposes_only_loopback_web() -> None:
     ]
 
 
+def test_nas_scrapers_are_four_isolated_source_pinned_processes() -> None:
+    raw = Path("infra/compose.nas-scrapers.yaml").read_text(encoding="utf-8")
+    compose = yaml.safe_load(raw)
+    services = compose["services"]
+    expected = {"scraper-olx", "scraper-otodom", "scraper-morizon", "scraper-gratka"}
+
+    assert set(services) == expected
+    assert set(compose["secrets"]) == {"scraper_token"}
+    published = set()
+    for name in expected:
+        service = services[name]
+        source = name.removeprefix("scraper-")
+        assert service["read_only"] is True
+        assert service["user"] == "10001:10001"
+        assert service["cap_drop"] == ["ALL"]
+        assert service["security_opt"] == ["no-new-privileges:true"]
+        assert service["secrets"] == ["scraper_token"]
+        assert service["command"][0:3] == [
+            "homefinder",
+            "scraper-server",
+            "--source",
+        ]
+        assert service["command"][3] == source
+        assert len(service["ports"]) == 1
+        assert service["ports"][0].startswith("${HOMEZ_NAS_TAILSCALE_IP:?")
+        published.add(service["ports"][0])
+    assert len(published) == 4
+
+
+def test_vps_scraping_override_mounts_token_only_into_workflow_worker() -> None:
+    raw = Path("infra/compose.scraping-vps.yaml").read_text(encoding="utf-8")
+    compose = yaml.safe_load(raw)
+
+    assert set(compose["services"]) == {"workflow-worker"}
+    worker = compose["services"]["workflow-worker"]
+    assert worker["secrets"] == ["scraper_token"]
+    assert worker["environment"]["HOMEFINDER_SCRAPER_TOKEN_FILE"] == (
+        "/run/secrets/scraper_token"
+    )
+    assert set(compose["secrets"]) == {"scraper_token"}
+
+
 def test_ci_checks_default_shared_model_omits_profiled_ingress() -> None:
     workflow = Path(".github/workflows/ci.yml").read_text(encoding="utf-8")
 

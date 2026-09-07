@@ -7,6 +7,7 @@ from pathlib import Path
 from threading import Event
 from uuid import UUID
 
+import uvicorn
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -34,6 +35,7 @@ from homefinder.runtime import (
     install_stop_signals,
     run_periodically,
 )
+from homefinder.scraper.app import create_scraper_app
 from homefinder.sources.gmail import (
     EncryptedTokenStore,
     GmailApiClient,
@@ -50,12 +52,14 @@ from homefinder.sources.portal_alerts import (
     OtodomAlertParser,
     SanitizedPortalAlertParser,
 )
+from homefinder.sources.portal_pages import ScrapedListing
+from homefinder.sources.remote_scraper import RemotePortalScraper
 from homefinder.sources.sample_portal import SamplePortalAlertParser
 from homefinder.workflow.service import WorkflowService
 
 
 def _parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="homefinder")
+    parser = argparse.ArgumentParser(prog="homefinder", allow_abbrev=False)
     commands = parser.add_subparsers(dest="command", required=True)
     preview = commands.add_parser(
         "preview", help="ingest an .eml fixture and render HTML"
@@ -132,11 +136,31 @@ def _parser() -> argparse.ArgumentParser:
     )
     runtime_health.add_argument("--heartbeat-file", required=True, type=Path)
     runtime_health.add_argument("--max-age-seconds", type=float, required=True)
+    scraper_server = commands.add_parser(
+        "scraper-server",
+        help="serve one source-pinned NAS scraper",
+        allow_abbrev=False,
+    )
+    scraper_server.add_argument(
+        "--source", required=True, choices=("olx", "otodom", "morizon", "gratka")
+    )
+    scraper_server.add_argument("--token-file", required=True, type=Path)
+    scraper_server.add_argument("--host", default="127.0.0.1")
+    scraper_server.add_argument("--port", type=int, default=8000)
     return parser
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
+    if args.command == "scraper-server":
+        read_secret_text(args.token_file)
+        uvicorn.run(
+            create_scraper_app(args.source, token_file=args.token_file),
+            host=args.host,
+            port=args.port,
+            access_log=False,
+        )
+        return 0
     if args.command in {"backup", "restore"}:
         settings = Settings()
         if settings.backup_key_file is None:
@@ -234,6 +258,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             pollers=(
                 _gmail_pollers(settings) if args.command == "workflow-worker" else None
             ),
+            listing_scrapers=(
+                _remote_scrapers(settings)
+                if args.command == "workflow-worker"
+                else None
+            ),
         )
         now = datetime.now(timezone.utc)
         if args.command == "reconcile-workflow":
@@ -310,12 +339,16 @@ def _load_source_policy(path: Path, source_key: str) -> SourcePolicy:
         hosts = frozenset(str(value).casefold() for value in source["allowed_hosts"])
         if not senders or not hosts:
             raise ValueError("source policy allowlists cannot be empty")
+        page_fetch_enabled = source.get("page_fetch_enabled", False)
+        if not isinstance(page_fetch_enabled, bool):
+            raise ValueError("page_fetch_enabled must be a boolean")
         return SourcePolicy(
             key=source_key,
             allowed_senders=senders,
             allowed_hosts=hosts,
             max_message_bytes=int(source.get("max_message_bytes", 512_000)),
             timeout_seconds=float(source.get("timeout_seconds", 5.0)),
+            page_fetch_enabled=page_fetch_enabled,
         )
     except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError) as error:
         raise SystemExit("source policy file is invalid") from error
@@ -373,6 +406,46 @@ def _gmail_pollers(settings: Settings) -> dict[str, Callable[[], object]]:
         source: partial(_poll_gmail, settings, source)
         for source in ("otodom", "morizon", "gratka", "olx")
     }
+
+
+def _remote_scrapers(
+    settings: Settings,
+) -> dict[str, Callable[[str], ScrapedListing]]:
+    if settings.gmail_source_policy_file is None:
+        return {}
+    endpoints = {
+        "olx": settings.scraper_olx_endpoint,
+        "otodom": settings.scraper_otodom_endpoint,
+        "morizon": settings.scraper_morizon_endpoint,
+        "gratka": settings.scraper_gratka_endpoint,
+    }
+    enabled = {
+        source: _load_source_policy(settings.gmail_source_policy_file, source)
+        for source in endpoints
+    }
+    requested = {
+        source: policy
+        for source, policy in enabled.items()
+        if policy.page_fetch_enabled
+    }
+    if not requested:
+        return {}
+    if settings.scraper_token_file is None:
+        raise SystemExit(
+            "NAS scraper token file is required when page fetching is enabled"
+        )
+    scrapers: dict[str, Callable[[str], ScrapedListing]] = {}
+    for source, policy in requested.items():
+        endpoint = endpoints[source]
+        if not endpoint:
+            raise SystemExit(f"NAS scraper endpoint is required for {source}")
+        scrapers[source] = RemotePortalScraper(
+            source,
+            endpoint=endpoint,
+            token_file=settings.scraper_token_file,
+            timeout_seconds=policy.timeout_seconds,
+        ).scrape
+    return scrapers
 
 
 def _feedback_links(
@@ -439,7 +512,11 @@ def _run_container_runtime(settings: Settings, args: argparse.Namespace) -> None
     engine = create_engine(settings.database_url.get_secret_value())
     sessions = sessionmaker(engine, expire_on_commit=False)
     if args.command == "runtime-workflow":
-        workflow = WorkflowService(sessions, pollers=_gmail_pollers(settings))
+        workflow = WorkflowService(
+            sessions,
+            pollers=_gmail_pollers(settings),
+            listing_scrapers=_remote_scrapers(settings),
+        )
 
         def action(now: datetime) -> None:
             workflow.reconcile_catalog(now=now)
