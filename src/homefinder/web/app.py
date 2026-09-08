@@ -3,12 +3,16 @@ import binascii
 import hashlib
 import hmac
 import json
+import re
 import secrets
-from datetime import datetime, timezone
+from collections.abc import Mapping
+from datetime import date, datetime, timezone
+from decimal import Decimal, InvalidOperation
 from html import escape
 from typing import Literal
 from urllib.parse import parse_qs, urlencode
 from uuid import UUID
+from zoneinfo import ZoneInfo
 
 from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
@@ -24,12 +28,14 @@ from homefinder.catalog.orm import (
     SourceRecord,
     WorkflowJobRecord,
 )
+from homefinder.catalog.profile_repository import SqlAlchemyBuyerProfileRepository
 from homefinder.config import Environment, Settings
 from homefinder.digest.delivery import DeliveryOutbox
 from homefinder.digest.feedback import (
     FeedbackError,
     SqlAlchemyFeedbackService,
 )
+from homefinder.domain.profile import BuyerProfile
 from homefinder.enrichment.environment import ManualCorrectionStore
 from homefinder.operations.health import HealthRegistry, HealthState
 from homefinder.operations.logging import setup_logging
@@ -208,6 +214,81 @@ def create_app(
                 application.state.sessions, now=datetime.now(timezone.utc)
             )
         )
+
+    @application.get("/feedback/settings", response_class=HTMLResponse)
+    def profile_settings(
+        authorization: str | None = Header(default=None),
+        saved: Literal["1"] | None = None,
+    ) -> HTMLResponse:
+        _require_offer_browser_admin(application.state.settings, authorization)
+        with application.state.sessions() as session:
+            try:
+                profile = SqlAlchemyBuyerProfileRepository(session).active()
+            except LookupError as error:
+                raise HTTPException(
+                    status_code=409, detail="active buyer profile is required"
+                ) from error
+        csrf = secrets.token_urlsafe(32)
+        response = HTMLResponse(
+            _render_profile_settings(profile, csrf_token=csrf, saved=saved == "1")
+        )
+        response.set_cookie(
+            "homefinder_settings_csrf",
+            csrf,
+            secure=True,
+            httponly=True,
+            samesite="strict",
+            max_age=3600,
+            path="/feedback/settings",
+        )
+        return response
+
+    @application.post("/feedback/settings")
+    async def update_profile_settings(
+        request: Request,
+        authorization: str | None = Header(default=None),
+    ) -> RedirectResponse:
+        _require_offer_browser_admin(application.state.settings, authorization)
+        body = await request.body()
+        if len(body) > 16_384:
+            raise HTTPException(status_code=413, detail="settings request is too large")
+        try:
+            values = parse_qs(
+                body.decode("utf-8"), strict_parsing=True, keep_blank_values=True
+            )
+            submitted_csrf = _single_form_value(values, "csrf_token")
+        except (ProfileSettingsError, UnicodeError, ValueError) as error:
+            raise HTTPException(
+                status_code=400, detail="invalid settings request"
+            ) from error
+        expected_csrf = request.cookies.get("homefinder_settings_csrf", "")
+        if not submitted_csrf or not hmac.compare_digest(submitted_csrf, expected_csrf):
+            raise HTTPException(status_code=400, detail="invalid CSRF token")
+        now = datetime.now(timezone.utc)
+        with application.state.sessions() as session:
+            repository = SqlAlchemyBuyerProfileRepository(session)
+            try:
+                active = repository.active()
+                profile = _profile_from_settings(
+                    values,
+                    active=active,
+                    version=repository.next_version(),
+                    effective_from=now.astimezone(ZoneInfo("Europe/Warsaw")).date(),
+                )
+                repository.add_approved(
+                    profile, approved_by="buyer-settings", approved_at=now
+                )
+            except ProfileSettingsError as error:
+                raise HTTPException(status_code=400, detail=str(error)) from error
+            except LookupError as error:
+                raise HTTPException(
+                    status_code=409, detail="active buyer profile is required"
+                ) from error
+            except ValueError as error:
+                raise HTTPException(
+                    status_code=409, detail="profile changed concurrently; retry"
+                ) from error
+        return RedirectResponse("/feedback/settings?saved=1", status_code=303)
 
     @application.get("/feedback/{report_id}/{listing_id}", response_class=HTMLResponse)
     def feedback_form(
@@ -433,6 +514,313 @@ def _require_offer_browser_admin(settings: Settings, authorization: str | None) 
         )
 
 
+class ProfileSettingsError(ValueError):
+    pass
+
+
+_HEATING_LABELS = {
+    "district": "Miejskie / MPEC",
+    "gas": "Gazowe",
+    "electric": "Elektryczne",
+    "heat_pump": "Pompa ciepła",
+    "solid_fuel": "Paliwo stałe",
+    "other": "Inne",
+}
+_SCORE_WEIGHT_FIELDS = (
+    ("ready_to_move", "Gotowe do zamieszkania"),
+    ("quiet", "Cicha okolica"),
+    ("green_space", "Tereny zielone"),
+    ("balcony", "Balkon"),
+    ("separate_kitchen", "Oddzielna kuchnia"),
+    ("small_building", "Mały budynek"),
+    ("area_fit", "Dopasowanie metrażu"),
+)
+
+
+def _profile_from_settings(
+    values: Mapping[str, list[str]],
+    *,
+    active: BuyerProfile,
+    version: int,
+    effective_from: date,
+) -> BuyerProfile:
+    if version <= active.version:
+        raise ProfileSettingsError("new profile version must follow the active version")
+    destination = _settings_text(values, "destination", maximum_length=500)
+    max_commute = _settings_int(values, "max_commute_minutes", 1, 240)
+    min_area = _settings_decimal(values, "min_area_sqm", Decimal("10"), Decimal("1000"))
+    min_rooms = _settings_int(values, "min_rooms", 1, 20)
+    max_price = _settings_money(values, "max_purchase_price_pln", 1, 1_000_000_000)
+    core_price = _settings_money(values, "core_purchase_price_pln", 1, 1_000_000_000)
+    installment = _settings_money(values, "max_monthly_installment_pln", 1, 1_000_000)
+    cash_budget = _settings_money(values, "cash_budget_pln", 1, 1_000_000_000)
+    building_dwellings = _settings_int(values, "max_building_dwellings", 1, 10_000)
+    ideal_low = _settings_decimal(
+        values, "ideal_area_low_sqm", Decimal("10"), Decimal("1000")
+    )
+    ideal_high = _settings_decimal(
+        values, "ideal_area_high_sqm", Decimal("10"), Decimal("1000")
+    )
+    admin_fee = _settings_money(values, "reference_admin_fee_pln", 1, 100_000)
+    if core_price > max_price:
+        raise ProfileSettingsError("core price cannot exceed maximum price")
+    if not min_area <= ideal_low <= ideal_high:
+        raise ProfileSettingsError(
+            "ideal area must start at or above minimum and end at or above its start"
+        )
+    heating = _single_form_value(values, "preferred_heating_type")
+    if heating not in _HEATING_LABELS:
+        raise ProfileSettingsError("preferred heating type is invalid")
+    localities_raw = _single_form_value(values, "excluded_localities")
+    localities = frozenset(
+        item.strip().casefold()
+        for item in re.split(r"[,\n]", localities_raw)
+        if item.strip()
+    )
+    if len(localities) > 50 or any(len(item) > 100 for item in localities):
+        raise ProfileSettingsError("excluded localities are invalid")
+    weights = tuple(
+        (
+            name,
+            _settings_decimal(values, f"weight_{name}", Decimal("0"), Decimal("100")),
+        )
+        for name, _ in _SCORE_WEIGHT_FIELDS
+    )
+    if sum((weight for _, weight in weights), Decimal("0")) != Decimal("100"):
+        raise ProfileSettingsError("score weights must add up to 100")
+    return BuyerProfile(
+        version=version,
+        effective_from=effective_from,
+        destination=destination,
+        max_commute_minutes=max_commute,
+        min_area_sqm=min_area,
+        min_rooms=min_rooms,
+        max_purchase_price_minor=max_price,
+        core_purchase_price_minor=core_price,
+        max_monthly_installment_minor=installment,
+        reference_admin_fee_including_heating_minor=admin_fee,
+        preferred_heating_type=heating,
+        cash_budget_minor=cash_budget,
+        max_building_dwellings=building_dwellings,
+        excluded_localities=localities,
+        ideal_area_low_sqm=ideal_low,
+        ideal_area_high_sqm=ideal_high,
+        score_weights=weights,
+    )
+
+
+def _single_form_value(values: Mapping[str, list[str]], name: str) -> str:
+    items = values.get(name)
+    if items is None or len(items) != 1:
+        raise ProfileSettingsError(f"field {name} is required exactly once")
+    return items[0].strip()
+
+
+def _settings_text(
+    values: Mapping[str, list[str]], name: str, *, maximum_length: int
+) -> str:
+    value = _single_form_value(values, name)
+    if not value or len(value) > maximum_length:
+        raise ProfileSettingsError(f"field {name} is invalid")
+    return value
+
+
+def _settings_int(
+    values: Mapping[str, list[str]], name: str, minimum: int, maximum: int
+) -> int:
+    raw = _single_form_value(values, name)
+    if re.fullmatch(r"[0-9]+", raw) is None:
+        raise ProfileSettingsError(f"field {name} must be an integer")
+    value = int(raw)
+    if not minimum <= value <= maximum:
+        raise ProfileSettingsError(f"field {name} is outside the allowed range")
+    return value
+
+
+def _settings_decimal(
+    values: Mapping[str, list[str]],
+    name: str,
+    minimum: Decimal,
+    maximum: Decimal,
+) -> Decimal:
+    raw = _single_form_value(values, name).replace(",", ".")
+    try:
+        value = Decimal(raw)
+    except InvalidOperation as error:
+        raise ProfileSettingsError(f"field {name} must be a number") from error
+    if not value.is_finite() or not minimum <= value <= maximum:
+        raise ProfileSettingsError(f"field {name} is outside the allowed range")
+    return value
+
+
+def _settings_money(
+    values: Mapping[str, list[str]], name: str, minimum: int, maximum: int
+) -> int:
+    amount = _settings_decimal(values, name, Decimal(minimum), Decimal(maximum))
+    minor = amount * 100
+    if minor != minor.to_integral_value():
+        raise ProfileSettingsError(f"field {name} supports at most two decimals")
+    return int(minor)
+
+
+def _render_profile_settings(
+    profile: BuyerProfile, *, csrf_token: str, saved: bool
+) -> str:
+    weights = profile.weights()
+    heating_options = "".join(
+        f'<option value="{escape(value, quote=True)}"'
+        f"{' selected' if value == profile.preferred_heating_type else ''}>"
+        f"{escape(label)}</option>"
+        for value, label in _HEATING_LABELS.items()
+    )
+    weight_fields = "".join(
+        _settings_input(
+            f"weight_{name}", label, str(weights.get(name, Decimal("0"))), step="0.1"
+        )
+        for name, label in _SCORE_WEIGHT_FIELDS
+    )
+    notice = (
+        "<p class=notice>Nowa wersja kryteriów została zapisana i aktywowana.</p>"
+        if saved
+        else ""
+    )
+    fixed_rules = (
+        "<ul><li>Zakup nieruchomości, nie najem</li>"
+        "<li>Brak poważnego ryzyka prawnego</li>"
+        "<li>Wydanie lokalu bez lokatorów i odrębna własność</li>"
+        "<li>Użyteczny układ, wymagania piętra/windy i możliwość parkowania</li></ul>"
+    )
+    hard_fields = "".join(
+        (
+            _settings_input(
+                "destination", "Cel dojazdu", profile.destination, input_type="text"
+            ),
+            _settings_input(
+                "max_commute_minutes",
+                "Maksymalny dojazd (min)",
+                profile.max_commute_minutes,
+            ),
+            _settings_input(
+                "min_area_sqm",
+                "Minimalny metraż (m²)",
+                profile.min_area_sqm,
+                step="0.1",
+            ),
+            _settings_input("min_rooms", "Minimalna liczba pokoi", profile.min_rooms),
+            _settings_input(
+                "max_purchase_price_pln",
+                "Maksymalna cena (PLN)",
+                _pln_form(profile.max_purchase_price_minor),
+                step="0.01",
+            ),
+            _settings_input(
+                "core_purchase_price_pln",
+                "Cena bazowa (PLN)",
+                _pln_form(profile.core_purchase_price_minor),
+                step="0.01",
+            ),
+            _settings_input(
+                "max_monthly_installment_pln",
+                "Maksymalna rata (PLN)",
+                _pln_form(profile.max_monthly_installment_minor),
+                step="0.01",
+            ),
+            _settings_input(
+                "cash_budget_pln",
+                "Budżet gotówkowy (PLN)",
+                _pln_form(profile.cash_budget_minor),
+                step="0.01",
+            ),
+            _settings_input(
+                "max_building_dwellings",
+                "Maksymalna liczba mieszkań w budynku",
+                profile.max_building_dwellings,
+            ),
+            _settings_input(
+                "excluded_localities",
+                "Wykluczone miejscowości (po przecinku)",
+                ", ".join(sorted(profile.excluded_localities)),
+                input_type="text",
+            ),
+        )
+    )
+    preference_fields = "".join(
+        (
+            _settings_input(
+                "ideal_area_low_sqm",
+                "Idealny metraż od (m²)",
+                profile.ideal_area_low_sqm,
+                step="0.1",
+            ),
+            _settings_input(
+                "ideal_area_high_sqm",
+                "Idealny metraż do (m²)",
+                profile.ideal_area_high_sqm,
+                step="0.1",
+            ),
+            _settings_input(
+                "reference_admin_fee_pln",
+                "Czynsz referencyjny z ogrzewaniem (PLN)",
+                _pln_form(profile.reference_admin_fee_including_heating_minor),
+                step="0.01",
+            ),
+        )
+    )
+    csrf_field = (
+        '<input type=hidden name="csrf_token" value="'
+        f'{escape(csrf_token, quote=True)}">'
+    )
+    return (
+        "<!doctype html><html lang=pl><meta charset=utf-8>"
+        "<meta name=viewport content='width=device-width'>"
+        "<title>Ustawienia kryteriów Homez</title><style>body{font-family:system-ui,"
+        "sans-serif;max-width:70rem;margin:2rem auto;padding:0 1rem;color:#202124}"
+        "fieldset{border:1px solid #ddd;border-radius:.7rem;margin:1rem 0;padding:1rem}"
+        "label{display:grid;grid-template-columns:minmax(14rem,1fr) minmax(10rem,1fr);"
+        "gap:.8rem;align-items:center;margin:.65rem 0}input,select,button{font:inherit;"
+        "padding:.5rem;box-sizing:border-box}input,select{width:100%}.notice{background:"
+        "#e6f4ea;padding:.8rem;border-radius:.5rem}.help{color:#555}button{margin-top:"
+        ".8rem}@media(max-width:40rem){label{grid-template-columns:1fr;gap:.2rem}}"
+        "</style><body><main><p><a href='/feedback/offers'>← Oferty</a> · "
+        "<a href='/feedback/queue'>Kolejka</a></p><h1>Ustawienia kryteriów</h1>"
+        f"<p>Aktywna wersja: {profile.version} · obowiązuje od "
+        f"{escape(profile.effective_from.isoformat())}</p>{notice}"
+        "<form method=post action='/feedback/settings'>"
+        f"{csrf_field}"
+        "<fieldset><legend>Wyszukiwanie i twarde limity</legend>"
+        f"{hard_fields}"
+        "</fieldset><fieldset><legend>Preferencje</legend>"
+        f"{preference_fields}"
+        '<label>Preferowane ogrzewanie<select name="preferred_heating_type">'
+        f"{heating_options}</select></label></fieldset>"
+        "<fieldset><legend>Wagi oceny (łącznie 100)</legend>"
+        f"{weight_fields}</fieldset><fieldset><legend>Stałe reguły bezpieczeństwa"
+        "</legend><p class=help>Te reguły są widoczne, ale nie można ich zmienić "
+        f"z panelu.</p>{fixed_rules}</fieldset>"
+        "<button type=submit>Zapisz jako nową aktywną wersję</button></form>"
+        "</main></body></html>"
+    )
+
+
+def _settings_input(
+    name: str,
+    label: str,
+    value: object,
+    *,
+    input_type: str = "number",
+    step: str = "1",
+) -> str:
+    return (
+        f'<label>{escape(label)}<input type="{input_type}" name="'
+        f'{escape(name, quote=True)}" value="{escape(str(value), quote=True)}"'
+        f"{' step=' + repr(step) if input_type == 'number' else ''} required></label>"
+    )
+
+
+def _pln_form(value_minor: int) -> str:
+    return f"{Decimal(value_minor) / Decimal(100):.2f}"
+
+
 _FEEDBACK_LABELS = {
     "like": "Podoba mi się",
     "dislike": "Nie podoba mi się",
@@ -547,7 +935,10 @@ def _render_offer_browser(
         f"<input type=hidden name=csrf_token value='{escape(csrf_token, quote=True)}'>"
         "<button type=submit>Wygeneruj i wyślij raport teraz</button></form>"
     )
-    queue_link = "<p><a href='/feedback/queue'>Status kolejki</a></p>"
+    queue_link = (
+        "<p><a href='/feedback/queue'>Status kolejki</a> · "
+        "<a href='/feedback/settings'>Ustawienia kryteriów</a></p>"
+    )
     return (
         "<!doctype html><html lang=pl><meta charset=utf-8>"
         "<meta name=viewport content='width=device-width'><title>Oferty Homez</title>"
@@ -717,7 +1108,8 @@ def _render_queue_status(sessions: sessionmaker[Session], *, now: datetime) -> s
         "1.6rem;margin-top:.25rem}table{border-collapse:collapse;width:100%;"
         "margin:1rem 0 2rem}th,td{text-align:left;border-bottom:1px solid #ddd;"
         "padding:.55rem}th{white-space:nowrap}.meta{color:#555}a{color:inherit}</style>"
-        "<body><main><p><a href='/feedback/offers'>← Oferty</a></p>"
+        "<body><main><p><a href='/feedback/offers'>← Oferty</a> · "
+        "<a href='/feedback/settings'>Ustawienia kryteriów</a></p>"
         "<h1>Kolejka Homez</h1>"
         f"<p class=meta>Stan na {_queue_time(now)} · "
         "automatyczne odświeżanie co 15 s</p>"

@@ -4,7 +4,7 @@ import json
 from datetime import date, datetime
 from decimal import Decimal
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -56,6 +56,32 @@ class SqlAlchemyBuyerProfileRepository:
         record.approved_at = approved_at
         self._session.commit()
 
+    def next_version(self) -> int:
+        latest = self._session.scalar(select(func.max(BuyerProfileRecord.version)))
+        return int(latest or 0) + 1
+
+    def add_approved(
+        self, profile: BuyerProfile, *, approved_by: str, approved_at: datetime
+    ) -> None:
+        if not approved_by.strip():
+            raise ValueError("approved_by is required")
+        record = BuyerProfileRecord(
+            version=profile.version,
+            effective_from=profile.effective_from.isoformat(),
+            profile_json=_serialize(profile),
+            created_at=approved_at,
+            approved_at=approved_at,
+            approved_by=approved_by,
+        )
+        try:
+            self._session.add(record)
+            self._session.commit()
+        except IntegrityError as error:
+            self._session.rollback()
+            raise ValueError(
+                f"buyer profile version {profile.version} already exists"
+            ) from error
+
     def get(self, version: int) -> BuyerProfile:
         record = self._session.get(BuyerProfileRecord, version)
         if record is None:
@@ -87,6 +113,7 @@ def _serialize(profile: BuyerProfile) -> str:
         "reference_admin_fee_including_heating_minor": (
             profile.reference_admin_fee_including_heating_minor
         ),
+        "preferred_heating_type": profile.preferred_heating_type,
         "cash_budget_minor": profile.cash_budget_minor,
         "max_building_dwellings": profile.max_building_dwellings,
         "excluded_localities": sorted(profile.excluded_localities),
@@ -114,6 +141,7 @@ def _deserialize(value: str) -> BuyerProfile:
         reference_admin_fee_including_heating_minor=int(
             payload.get("reference_admin_fee_including_heating_minor", 50_000)
         ),
+        preferred_heating_type=str(payload.get("preferred_heating_type", "district")),
         cash_budget_minor=int(payload["cash_budget_minor"]),
         max_building_dwellings=int(payload["max_building_dwellings"]),
         excluded_localities=frozenset(

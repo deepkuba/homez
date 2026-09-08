@@ -193,7 +193,7 @@ def evaluate(facts: PropertyFacts, profile: BuyerProfile) -> MatchExplanation:
     )
     preferences = (
         _admin_fee_rule(facts, profile),
-        _heating_rule(facts.heating_type),
+        _heating_rule(facts.heating_type, profile.preferred_heating_type),
     )
     return MatchExplanation(
         rules,
@@ -245,18 +245,20 @@ def _admin_fee_rule(facts: PropertyFacts, profile: BuyerProfile) -> RuleResult:
     )
 
 
-def _heating_rule(heating_type: str | None) -> RuleResult:
-    threshold = "district heating / MPEC"
+def _heating_rule(heating_type: str | None, preferred: str) -> RuleResult:
+    threshold = preferred
     if heating_type is None:
         return RuleResult(
             "heating", TriState.UNKNOWN, "unknown", threshold, "type unknown"
         )
     return RuleResult(
         "heating",
-        TriState.PASS if heating_type == "district" else TriState.FAIL,
+        TriState.PASS if heating_type == preferred else TriState.FAIL,
         heating_type,
         threshold,
-        "meets preference" if heating_type == "district" else "not district heating",
+        "meets preference"
+        if heating_type == preferred
+        else f"preferred type is {preferred}",
     )
 
 

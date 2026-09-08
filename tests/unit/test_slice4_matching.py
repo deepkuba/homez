@@ -97,6 +97,17 @@ def test_500_pln_admin_fee_including_mpec_meets_preferences() -> None:
     assert preferences["heating"].state is TriState.PASS
 
 
+def test_heating_preference_comes_from_the_active_profile() -> None:
+    result = evaluate(
+        _facts(heating_type="gas"),
+        BuyerProfile(preferred_heating_type="gas"),
+    )
+
+    heating = next(rule for rule in result.preferences if rule.name == "heating")
+    assert heating.state is TriState.PASS
+    assert heating.threshold == "gas"
+
+
 def test_failed_rule_cannot_be_overridden_by_score_and_unknown_stays_visible() -> None:
     result = evaluate(
         _facts(

@@ -204,6 +204,12 @@ homefinder schedule-delivery
 homefinder delivery-worker --max-deliveries 10
 ```
 
+The authenticated buyer UI exposes active criteria at `/feedback/settings`.
+Submitting the form creates and approves a new immutable buyer-profile version;
+the next scheduler reconciliation enqueues fresh match evaluations for that
+version. The page uses the same Basic-auth secret as `/feedback/offers`, requires
+a same-site CSRF cookie, and keeps transaction-safety rules read-only.
+
 Homez also sends the stable key in `Idempotency-Key`, but Mailtrap does not
 currently document that the header deduplicates requests. Ambiguous timeout
 retries can therefore duplicate a message. The recipient remains blocked on

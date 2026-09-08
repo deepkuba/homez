@@ -22,6 +22,7 @@ def test_profile_is_versioned_persisted_and_inactive_until_human_approval() -> N
         effective_from=date(2026, 9, 1),
         min_area_sqm=Decimal("42.5"),
         reference_admin_fee_including_heating_minor=55_000,
+        preferred_heating_type="gas",
     )
     approved_at = datetime(2026, 9, 1, 8, tzinfo=timezone.utc)
 
