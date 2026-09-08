@@ -11,5 +11,6 @@ Live Gmail and Mailtrap sandbox verification, the OLX parser contract,
 production sender configuration, and buyer approval of provisional profile
 values remain outstanding.
 
-See [the implementation plan](docs/real-estate-assistant/IMPLEMENTATION_PLAN.md)
-and [local development instructions](docs/development.md).
+See [the implementation plan](docs/real-estate-assistant/IMPLEMENTATION_PLAN.md),
+[local development instructions](docs/development.md), and the
+[read-only SQL analytics guide](docs/analytics.md).

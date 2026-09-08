@@ -215,6 +215,31 @@ Content-Type: text/html; charset=utf-8
     assert parsed.snapshot.location is None
 
 
+def test_otodom_decimal_price_uses_whole_amount_not_decimal_cents() -> None:
+    listing_url = (
+        "https://www.otodom.pl/pl/oferta/"
+        "zielono-mi-mieszkanie-gotowe-do-odbioru-4-pokoje-bibice-ul-mokra-ID4CSnH"
+    )
+    raw = f"""Message-ID: <otodom-decimal-price@example.com>
+Date: Tue, 8 Sep 2026 08:00:00 +0200
+From: Otodom <alerts@example.com>
+Subject: New matching listing
+Content-Type: text/html; charset=utf-8
+
+<html><body><div role="article">
+  <a href="{listing_url}"><img alt="Zielono mi, 4 pokoje"></a>
+  <strong>829 376,71 zł</strong>
+</div></body></html>
+""".encode()
+    parser = OtodomAlertParser(
+        allowed_hosts=frozenset({"www.otodom.pl"}),
+    )
+
+    parsed = parser.parse(raw)
+
+    assert parsed.snapshot.price_minor == 82_937_671
+
+
 def test_portal_contract_rejects_oversized_and_invalid_numeric_messages() -> None:
     raw = (FIXTURES / "gratka_alert.eml").read_bytes()
     with pytest.raises(AlertParseError, match="message-size"):

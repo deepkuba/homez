@@ -36,7 +36,10 @@ MAX_TRACKING_URL_BYTES = 4096
 MAX_REDIRECT_CACHE_ENTRIES = 1024
 RedirectFetcher = Callable[[str, float], tuple[int, tuple[str, ...]]]
 _REQUIRED_FIELDS = frozenset({"title", "url", "price"})
-_PRICE_PATTERN = re.compile(r"([0-9][0-9\s\u00a0]*)\s*(PLN|zł)", re.IGNORECASE)
+_PRICE_PATTERN = re.compile(
+    r"(?<![0-9,])([0-9][0-9\s\u00a0.]*?)(?:,([0-9]{1,2}))?\s*(PLN|zł)",
+    re.IGNORECASE,
+)
 _AREA_PATTERN = re.compile(r"([0-9]+(?:[.,][0-9]+)?)\s*m(?:2|²)", re.IGNORECASE)
 _ROOMS_PATTERN = re.compile(r"([0-9]+)")
 _ROOMS_TEXT_PATTERN = re.compile(
@@ -366,8 +369,13 @@ class SanitizedPortalAlertParser:
             if price_match is None:
                 raise ValueError
             price_major = int(
-                price_match.group(1).replace(" ", "").replace("\u00a0", "")
+                price_match.group(1)
+                .replace(" ", "")
+                .replace("\u00a0", "")
+                .replace(".", "")
             )
+            price_fraction = (price_match.group(2) or "").ljust(2, "0")
+            price_minor = price_major * 100 + int(price_fraction or "0")
             area_sqm = (
                 Decimal(area_match.group(1).replace(",", "."))
                 if area_match is not None
@@ -379,8 +387,8 @@ class SanitizedPortalAlertParser:
                 "listing contains invalid numeric values", code="numeric-values"
             ) from error
         if (
-            price_major <= 0
-            or price_major > 20_000_000
+            price_minor <= 0
+            or price_minor > 2_000_000_000
             or area_sqm is not None
             and (area_sqm <= 0 or area_sqm > 999_999)
             or rooms is not None
@@ -398,7 +406,7 @@ class SanitizedPortalAlertParser:
             title=article.fields["title"],
         )
         snapshot_values = {
-            "price_minor": price_major * 100,
+            "price_minor": price_minor,
             "currency": "PLN",
             "area_sqm": str(area_sqm) if area_sqm is not None else None,
             "rooms": rooms,
@@ -410,7 +418,7 @@ class SanitizedPortalAlertParser:
             id=uuid4(),
             listing_id=listing.id,
             observed_at=received_at,
-            price_minor=price_major * 100,
+            price_minor=price_minor,
             currency="PLN",
             area_sqm=area_sqm,
             rooms=rooms,

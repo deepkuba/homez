@@ -1,0 +1,81 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat <<'EOF'
+Usage: scripts/homez-sql [--host SSH_HOST] [--csv]
+
+Run SQL from standard input against the curated, read-only Homez analytics view.
+Without --host, run from the Homez repository on the VPS. With --host, execute
+the same command through SSH (for example: --host homez-vps).
+EOF
+}
+
+ssh_host=""
+csv=false
+
+while (($# > 0)); do
+  case "$1" in
+    --host)
+      if (($# < 2)); then
+        echo "homez-sql: --host requires a value" >&2
+        exit 2
+      fi
+      ssh_host="$2"
+      shift 2
+      ;;
+    --csv)
+      csv=true
+      shift
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "homez-sql: unknown option: $1" >&2
+      usage >&2
+      exit 2
+      ;;
+  esac
+done
+
+if [[ -n "$ssh_host" && ! "$ssh_host" =~ ^[A-Za-z0-9][A-Za-z0-9_.:@-]*$ ]]; then
+  echo "homez-sql: invalid SSH host" >&2
+  exit 2
+fi
+
+compose_args=(
+  compose
+  --project-name homez
+  --env-file .env
+  -f infra/compose.yaml
+  -f infra/compose.shared-vps.yaml
+  -f infra/compose.scraping-vps.yaml
+)
+psql_args=(
+  exec -T db
+  psql -X --set ON_ERROR_STOP=1
+  -U homez_analytics_reader
+  -d homefinder
+)
+if [[ "$csv" == true ]]; then
+  psql_args+=(--csv)
+fi
+psql_args+=(--no-password)
+
+if [[ -n "$ssh_host" ]]; then
+  ssh_bin="${HOMEZ_SQL_SSH_BIN:-ssh}"
+  remote_command="cd /opt/homez/homez && docker compose --project-name homez --env-file .env -f infra/compose.yaml -f infra/compose.shared-vps.yaml -f infra/compose.scraping-vps.yaml exec -T db psql -X --set ON_ERROR_STOP=1 -U homez_analytics_reader -d homefinder"
+  if [[ "$csv" == true ]]; then
+    remote_command+=" --csv"
+  fi
+  remote_command+=" --no-password"
+  exec "$ssh_bin" "$ssh_host" "$remote_command"
+fi
+
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+repo_root="$(dirname "$script_dir")"
+cd "$repo_root"
+docker_bin="${HOMEZ_SQL_DOCKER_BIN:-docker}"
+exec "$docker_bin" "${compose_args[@]}" "${psql_args[@]}"
