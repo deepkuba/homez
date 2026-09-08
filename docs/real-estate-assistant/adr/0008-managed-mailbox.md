@@ -6,7 +6,7 @@
 ## Context
 
 Portal-provided saved-search alerts are the preferred discovery trigger. The
-system needs an inbox for ingestion and a reliable way to send one weekly digest.
+system needs an inbox for ingestion and a reliable way to send one daily digest.
 The buyer is comfortable using a dedicated mailbox and asks whether Gmail or
 self-hosting is preferable.
 

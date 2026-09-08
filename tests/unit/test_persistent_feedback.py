@@ -137,6 +137,8 @@ def test_get_is_side_effect_free_and_post_has_security_controls(
     assert form.status_code == 200
     assert 'name="reason_code"' in form.text
     assert 'value="too_expensive"' in form.text
+    assert 'value="too_high_admin_fee"' in form.text
+    assert 'value="unsuitable_heating"' in form.text
     assert 'name="comment"' in form.text
     assert token not in form.text
     assert form.headers["referrer-policy"] == "no-referrer"

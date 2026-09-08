@@ -53,6 +53,9 @@ class PropertyFacts:
     green_space: bool | None = None
     balcony: bool | None = None
     separate_kitchen: bool | None = None
+    monthly_admin_fee_minor: int | None = None
+    heating_type: str | None = None
+    admin_fee_includes_heating: bool | None = None
     score_confidence: Decimal = Decimal("1")
     last_presented_at: datetime | None = None
     materially_changed: bool = False
@@ -86,6 +89,7 @@ class MatchExplanation:
     score: Decimal
     confidence: Decimal
     exploration_reasons: tuple[str, ...]
+    preferences: tuple[RuleResult, ...] = ()
 
     @property
     def eligible(self) -> bool:
@@ -187,12 +191,72 @@ def evaluate(facts: PropertyFacts, profile: BuyerProfile) -> MatchExplanation:
         for rule in rules
         if rule.state is not TriState.PASS
     )
+    preferences = (
+        _admin_fee_rule(facts, profile),
+        _heating_rule(facts.heating_type),
+    )
     return MatchExplanation(
         rules,
         components,
         score.quantize(Decimal("0.01")),
         confidence.quantize(Decimal("0.01")),
         reasons,
+        preferences,
+    )
+
+
+def _admin_fee_rule(facts: PropertyFacts, profile: BuyerProfile) -> RuleResult:
+    reference = profile.reference_admin_fee_including_heating_minor
+    threshold = f"at most {_pln(reference)} including heating"
+    amount = facts.monthly_admin_fee_minor
+    if amount is None:
+        return RuleResult(
+            "monthly_admin_fee",
+            TriState.UNKNOWN,
+            "unknown",
+            threshold,
+            "distance unknown",
+        )
+    actual = _pln(amount)
+    if facts.admin_fee_includes_heating is not True:
+        inclusion = (
+            "heating excluded"
+            if facts.admin_fee_includes_heating is False
+            else "heating inclusion unknown"
+        )
+        return RuleResult(
+            "monthly_admin_fee",
+            TriState.UNKNOWN,
+            f"{actual}; {inclusion}",
+            threshold,
+            "not comparable with heating-inclusive reference",
+        )
+    difference = reference - amount
+    return RuleResult(
+        "monthly_admin_fee",
+        TriState.PASS if difference >= 0 else TriState.FAIL,
+        f"{actual}; heating included",
+        threshold,
+        (
+            f"under by {_pln(difference)}"
+            if difference >= 0
+            else f"over by {_pln(-difference)}"
+        ),
+    )
+
+
+def _heating_rule(heating_type: str | None) -> RuleResult:
+    threshold = "district heating / MPEC"
+    if heating_type is None:
+        return RuleResult(
+            "heating", TriState.UNKNOWN, "unknown", threshold, "type unknown"
+        )
+    return RuleResult(
+        "heating",
+        TriState.PASS if heating_type == "district" else TriState.FAIL,
+        heating_type,
+        threshold,
+        "meets preference" if heating_type == "district" else "not district heating",
     )
 
 

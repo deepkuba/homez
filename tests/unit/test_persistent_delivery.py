@@ -9,10 +9,10 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from homefinder.catalog.orm import Base, DigestDeliveryRecord, ReportDraftRecord
 from homefinder.digest.delivery import (
+    DailyScheduler,
     DeliveryOutbox,
     DeliveryState,
     DeliveryWorker,
-    FridayScheduler,
     MailAcknowledgement,
     MailTransport,
     MailtrapApiTransport,
@@ -87,23 +87,23 @@ class FakeTransport(MailTransport):
         )
 
 
-def test_friday_scheduler_handles_dst_and_delayed_recovery() -> None:
-    winter = FridayScheduler.scheduled_at("2026-W02")
-    summer = FridayScheduler.scheduled_at("2026-W36")
+def test_daily_scheduler_handles_dst_and_delayed_recovery() -> None:
+    winter = DailyScheduler.scheduled_at("2026-01-08")
+    summer = DailyScheduler.scheduled_at("2026-09-08")
 
-    assert winter.astimezone(timezone.utc).hour == 9
-    assert summer.astimezone(timezone.utc).hour == 8
+    assert winter.astimezone(timezone.utc).hour == 16
+    assert summer.astimezone(timezone.utc).hour == 15
     assert (
-        FridayScheduler.most_recent_due_period(
-            datetime(2026, 9, 5, 12, tzinfo=timezone.utc)
+        DailyScheduler.most_recent_due_period(
+            datetime(2026, 9, 8, 16, tzinfo=timezone.utc)
         )
-        == "2026-W36"
+        == "2026-09-08"
     )
     assert (
-        FridayScheduler.most_recent_due_period(
-            datetime(2026, 9, 4, 7, 59, tzinfo=timezone.utc)
+        DailyScheduler.most_recent_due_period(
+            datetime(2026, 9, 8, 14, 59, tzinfo=timezone.utc)
         )
-        == "2026-W35"
+        == "2026-09-07"
     )
 
 
@@ -133,7 +133,7 @@ def test_acknowledged_delivery_is_never_claimed_twice(tmp_path: Path) -> None:
     assert worker.run_once(now=NOW)
     assert not worker.run_once(now=NOW + timedelta(days=1))
     assert transport.keys == [f"homez:2026-W36:{report_id}"]
-    assert transport.subjects == ["Homefinder weekly report 2026-W36"]
+    assert transport.subjects == ["Homefinder report 2026-W36"]
     with sessions() as session:
         record = session.get(DigestDeliveryRecord, "2026-W36")
         assert record is not None

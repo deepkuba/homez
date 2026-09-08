@@ -41,13 +41,19 @@ PORTALS = (
 )
 
 
-def _page(url: str) -> bytes:
+def _page(
+    url: str,
+    description: str = (
+        "Po remoncie, blisko tramwaju. Czynsz administracyjny 500 zł "
+        "zawiera ogrzewanie MPEC."
+    ),
+) -> bytes:
     payload = {
         "@context": "https://schema.org",
         "@type": "Apartment",
         "url": url,
         "name": "Jasne mieszkanie z balkonem",
-        "description": "Po remoncie, blisko tramwaju.",
+        "description": description,
         "floorSize": {"@type": "QuantitativeValue", "value": "74.5"},
         "numberOfRooms": 3,
         "address": {
@@ -89,8 +95,59 @@ def test_each_portal_scraper_extracts_normalized_structured_listing(
     assert listing.area_sqm == Decimal("74.5")
     assert listing.rooms == 3
     assert listing.location == "Stelmachow 10, Krakow"
-    assert listing.description == "Po remoncie, blisko tramwaju."
+    assert listing.description == (
+        "Po remoncie, blisko tramwaju. Czynsz administracyjny 500 zł "
+        "zawiera ogrzewanie MPEC."
+    )
+    assert listing.monthly_admin_fee_minor == 50_000
+    assert listing.heating_type == "district"
+    assert listing.admin_fee_includes_heating is True
     assert listing.availability == "active"
+
+
+def test_scraper_marks_separately_paid_non_district_heating() -> None:
+    url = PORTALS[1][1]
+    page = _page(
+        url,
+        "Czynsz administracyjny 720 PLN. Ogrzewanie gazowe płatne osobno.",
+    )
+    scraper = PortalPageScraper(
+        "otodom", fetcher=lambda requested, timeout, limit: page
+    )
+
+    listing = scraper.scrape(url)
+
+    assert listing.monthly_admin_fee_minor == 72_000
+    assert listing.heating_type == "gas"
+    assert listing.admin_fee_includes_heating is False
+
+
+def test_old_scraper_response_is_enriched_from_its_description() -> None:
+    payload = ScrapedListing(
+        source_key="olx",
+        source_listing_id="IDABC123",
+        canonical_url=PORTALS[0][1],
+        title="Jasne mieszkanie",
+        price_minor=90_000_000,
+        currency="PLN",
+        area_sqm=Decimal("50"),
+        rooms=2,
+        location="Krakow",
+        description="Czynsz 1 000 zł, ogrzewanie miejskie wliczone w czynsz.",
+        availability="active",
+    ).as_json()
+    for key in (
+        "monthly_admin_fee_minor",
+        "heating_type",
+        "admin_fee_includes_heating",
+    ):
+        payload.pop(key)
+
+    listing = ScrapedListing.from_json(payload)
+
+    assert listing.monthly_admin_fee_minor == 100_000
+    assert listing.heating_type == "district"
+    assert listing.admin_fee_includes_heating is True
 
 
 def test_portal_scraper_rejects_cross_portal_and_credentialed_urls() -> None:

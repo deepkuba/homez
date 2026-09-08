@@ -74,21 +74,28 @@ def render_digest(
         plain_sections.extend(lines)
     html = (
         '<!doctype html><meta name="referrer" content="no-referrer"><main>'
-        f"<h1>Homefinder weekly digest</h1>{''.join(sections)}</main>"
+        f"<h1>Homefinder daily digest</h1>{''.join(sections)}</main>"
     )
-    return html, "Homefinder weekly digest\n\n" + "\n".join(plain_sections)
+    return html, "Homefinder daily digest\n\n" + "\n".join(plain_sections)
 
 
 def _render_criteria(explanation: MatchExplanation) -> tuple[str, str]:
     groups = (
-        ("Criteria met", TriState.PASS),
-        ("Criteria not met", TriState.FAIL),
-        ("Unknown / needs verification", TriState.UNKNOWN),
+        ("Criteria met", explanation.eligibility, TriState.PASS),
+        ("Criteria not met", explanation.eligibility, TriState.FAIL),
+        (
+            "Unknown / needs verification",
+            explanation.eligibility,
+            TriState.UNKNOWN,
+        ),
+        ("Preferences met", explanation.preferences, TriState.PASS),
+        ("Preferences not met", explanation.preferences, TriState.FAIL),
+        ("Preferences unknown", explanation.preferences, TriState.UNKNOWN),
     )
     html_groups: list[str] = []
     plain_groups: list[str] = []
-    for heading, state in groups:
-        rules = tuple(rule for rule in explanation.eligibility if rule.state is state)
+    for heading, source, state in groups:
+        rules = tuple(rule for rule in source if rule.state is state)
         html_rules = "".join(f"<li>{escape(_rule_text(rule))}</li>" for rule in rules)
         html_groups.append(
             f"<section><h4>{heading}</h4>"

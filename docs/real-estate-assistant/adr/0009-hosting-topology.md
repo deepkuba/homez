@@ -6,7 +6,7 @@
 ## Context
 
 The buyer has both an always-on NAS and a VPS. The assistant needs reliable
-scheduled ingestion, weekly delivery, persistent listing history, and protected
+scheduled ingestion, daily delivery, persistent listing history, and protected
 credentials. It does not initially require a public user-facing service.
 
 ## Decision
@@ -21,7 +21,7 @@ Initial topology:
   report generation;
 - one relational database container;
 - cron or a lightweight persistent scheduler for frequent inbox ingestion and
-  weekly report generation;
+  daily report generation;
 - optional isolated browser worker only for source-reviewed page retrieval;
 - encrypted database/config backups copied to the NAS;
 - private administration over SSH or a private network/VPN, with no public

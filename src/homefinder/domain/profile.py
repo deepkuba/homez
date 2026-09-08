@@ -18,6 +18,7 @@ class BuyerProfile:
     max_purchase_price_minor: int = 80_000_000
     core_purchase_price_minor: int = 75_000_000
     max_monthly_installment_minor: int = 400_000
+    reference_admin_fee_including_heating_minor: int = 50_000
     cash_budget_minor: int = 20_000_000
     max_building_dwellings: int = 80
     excluded_localities: frozenset[str] = frozenset({"skawina"})

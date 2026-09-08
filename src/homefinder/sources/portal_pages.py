@@ -50,6 +50,9 @@ class ScrapedListing:
     location: str | None
     description: str
     availability: str
+    monthly_admin_fee_minor: int | None = None
+    heating_type: str | None = None
+    admin_fee_includes_heating: bool | None = None
 
     def as_json(self) -> dict[str, object]:
         return {
@@ -64,6 +67,9 @@ class ScrapedListing:
             "location": self.location,
             "description": self.description,
             "availability": self.availability,
+            "monthly_admin_fee_minor": self.monthly_admin_fee_minor,
+            "heating_type": self.heating_type,
+            "admin_fee_includes_heating": self.admin_fee_includes_heating,
         }
 
     @classmethod
@@ -73,6 +79,12 @@ class ScrapedListing:
             area = Decimal(str(area_value)) if area_value is not None else None
             price_value = payload.get("price_minor")
             rooms_value = payload.get("rooms")
+            admin_fee_value = payload.get("monthly_admin_fee_minor")
+            heating_included_value = payload.get("admin_fee_includes_heating")
+            description = _optional_text(payload.get("description"), 20_000) or ""
+            inferred_fee, inferred_heating, inferred_inclusion = (
+                extract_recurring_cost_facts(description)
+            )
             result = cls(
                 source_key=_bounded_text(payload["source_key"], 100),
                 source_listing_id=_bounded_text(payload["source_listing_id"], 255),
@@ -93,8 +105,23 @@ class ScrapedListing:
                     if payload.get("location") is not None
                     else None
                 ),
-                description=_optional_text(payload.get("description"), 20_000) or "",
+                description=description,
                 availability=_bounded_text(payload.get("availability", "unknown"), 20),
+                monthly_admin_fee_minor=(
+                    _json_int(admin_fee_value)
+                    if admin_fee_value is not None
+                    else inferred_fee
+                ),
+                heating_type=(
+                    _bounded_text(payload["heating_type"], 30)
+                    if payload.get("heating_type") is not None
+                    else inferred_heating
+                ),
+                admin_fee_includes_heating=(
+                    _optional_bool(heating_included_value)
+                    if heating_included_value is not None
+                    else inferred_inclusion
+                ),
             )
         except (KeyError, TypeError, ValueError, InvalidOperation) as error:
             raise PageScrapeError("scraper response is invalid") from error
@@ -111,10 +138,24 @@ class ScrapedListing:
             and result.rooms <= 0
             or result.rooms is not None
             and result.rooms > 1_000
+            or result.monthly_admin_fee_minor is not None
+            and result.monthly_admin_fee_minor <= 0
+            or result.monthly_admin_fee_minor is not None
+            and result.monthly_admin_fee_minor > 10_000_000
         ):
             raise PageScrapeError("scraper response contains invalid numeric values")
         if result.availability not in {"active", "unavailable", "unknown"}:
             raise PageScrapeError("scraper response availability is invalid")
+        if result.heating_type not in {
+            None,
+            "district",
+            "gas",
+            "electric",
+            "heat_pump",
+            "solid_fuel",
+            "other",
+        }:
+            raise PageScrapeError("scraper response heating type is invalid")
         return result
 
 
@@ -185,6 +226,10 @@ class PortalPageScraper:
         except UnicodeDecodeError as error:
             raise PageScrapeError("listing page is not valid UTF-8") from error
         data = _extract_structured_listing(html)
+        description = _optional_text(data.get("description"), MAX_TEXT_CHARS) or ""
+        admin_fee, heating_type, heating_included = extract_recurring_cost_facts(
+            description
+        )
         return ScrapedListing(
             source_key=self.source_key,
             source_listing_id=listing_id,
@@ -195,9 +240,76 @@ class PortalPageScraper:
             area_sqm=_area_sqm(data.get("area")),
             rooms=_positive_int(data.get("rooms")),
             location=_optional_text(data.get("location"), 500),
-            description=_optional_text(data.get("description"), MAX_TEXT_CHARS) or "",
+            description=description,
             availability=_availability(data.get("availability")),
+            monthly_admin_fee_minor=admin_fee,
+            heating_type=heating_type,
+            admin_fee_includes_heating=heating_included,
         )
+
+
+_ADMIN_FEE_PATTERN = re.compile(
+    r"(?:czynsz(?:\s+administracyjny)?|opłat(?:a\s+administracyjna|y\s+administracyjne))"
+    r"(?:\s+(?:wynosi|w\s+wysokości|około|ok\.?))?\s*[:\-–]?\s*"
+    r"(?P<amount>(?:[0-9]{1,2}(?:[ .][0-9]{3})+|[0-9]{2,5})"
+    r"(?:,[0-9]{1,2})?)\s*(?:zł|pln)\b",
+    re.IGNORECASE,
+)
+
+
+def _admin_fee_minor(description: str) -> int | None:
+    match = _ADMIN_FEE_PATTERN.search(description)
+    if match is None:
+        return None
+    amount = Decimal(
+        match.group("amount").replace(" ", "").replace(".", "").replace(",", ".")
+    )
+    return int(amount * 100)
+
+
+def _heating_type(description: str) -> str | None:
+    normalized = description.casefold()
+    patterns = (
+        ("district", r"\b(?:mpec|ogrzewanie\s+miejskie|ciepło\s+miejskie)\b"),
+        ("heat_pump", r"\bpomp(?:a|y|ą)\s+ciepła\b"),
+        ("gas", r"\bogrzewani\w*\s+gazow\w*\b|\bpiec\w*\s+gazow\w*\b"),
+        ("electric", r"\bogrzewani\w*\s+elektrycz\w*\b"),
+        ("solid_fuel", r"\bogrzewani\w*\s+(?:węglow\w*|na\s+pellet|na\s+węgiel)\b"),
+    )
+    for name, pattern in patterns:
+        if re.search(pattern, normalized):
+            return name
+    return None
+
+
+def _admin_fee_includes_heating(description: str) -> bool | None:
+    normalized = " ".join(description.casefold().split())
+    heating = r"(?:ogrzewani\w*|mpec|ciepł\w*\s+miejsk\w*)"
+    fee = r"(?:czynsz\w*|opłat\w*\s+administracyjn\w*)"
+    excluded = (
+        rf"{heating}.{{0,80}}(?:płatn\w*\s+(?:osobno|dodatkowo)|poza\s+{fee}|"
+        r"nie\s+(?:jest\s+)?wliczon\w*)"
+    )
+    included = (
+        rf"{fee}.{{0,120}}(?:zawiera|obejmuje|wliczon\w*).{{0,80}}{heating}"
+        rf"|{heating}.{{0,80}}(?:wliczon\w*\s+w|w\s+ramach)\s+{fee}"
+    )
+    if re.search(excluded, normalized):
+        return False
+    if re.search(included, normalized):
+        return True
+    return None
+
+
+def extract_recurring_cost_facts(
+    description: str,
+) -> tuple[int | None, str | None, bool | None]:
+    """Extract conservative fee/heating facts from a listing description."""
+    return (
+        _admin_fee_minor(description),
+        _heating_type(description),
+        _admin_fee_includes_heating(description),
+    )
 
 
 def validate_listing_url(source_key: str, url: str) -> tuple[str, str]:
@@ -408,6 +520,12 @@ def _json_int(value: object) -> int:
     if isinstance(value, str) and re.fullmatch(r"[0-9]+", value):
         return int(value)
     raise PageScrapeError("scraper response integer is invalid")
+
+
+def _optional_bool(value: object) -> bool | None:
+    if value is None or isinstance(value, bool):
+        return value
+    raise PageScrapeError("scraper response boolean is invalid")
 
 
 def _positive_decimal(value: object) -> Decimal | None:

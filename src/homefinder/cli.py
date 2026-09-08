@@ -18,9 +18,9 @@ from homefinder.catalog.orm import Base, ReportDraftRecord, ReportItemRecord
 from homefinder.catalog.repository import SqlAlchemyCatalogRepository
 from homefinder.config import Environment, Settings
 from homefinder.digest.delivery import (
+    DailyScheduler,
     DeliveryOutbox,
     DeliveryWorker,
-    FridayScheduler,
     MailtrapApiTransport,
 )
 from homefinder.digest.feedback import SqlAlchemyFeedbackService, private_feedback_url
@@ -104,7 +104,7 @@ def _parser() -> argparse.ArgumentParser:
     )
     enqueue_poll.add_argument("--scheduled-at", required=True)
     schedule = commands.add_parser(
-        "schedule-delivery", help="enqueue the most recent due Friday report"
+        "schedule-delivery", help="enqueue the most recent due daily report"
     )
     schedule.add_argument("--now")
     delivery = commands.add_parser(
@@ -222,7 +222,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.command == "schedule-delivery":
             if settings.report_recipient_file is None:
                 raise SystemExit("report recipient secret file is required")
-            period = FridayScheduler.most_recent_due_period(now)
+            period = DailyScheduler.most_recent_due_period(now)
             if outbox.contains_period(period):
                 print(False)
                 return 0
@@ -546,8 +546,8 @@ def _run_container_runtime(settings: Settings, args: argparse.Namespace) -> None
             for source in ("otodom", "morizon", "gratka", "olx"):
                 workflow.enqueue_poll(source_key=source, scheduled_at=now)
             workflow.reconcile_catalog(now=now)
-            period = FridayScheduler.most_recent_due_period(now)
-            scheduled_at = FridayScheduler.scheduled_at(period)
+            period = DailyScheduler.most_recent_due_period(now)
+            scheduled_at = DailyScheduler.scheduled_at(period)
             if outbox.contains_period(period):
                 return
             workflow.enqueue_report(

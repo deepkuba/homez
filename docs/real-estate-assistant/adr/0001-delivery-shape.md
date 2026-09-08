@@ -23,7 +23,7 @@ For a single buyer, prefer a small modular monolith with:
 - a relational store with listing snapshots and inferred duplicate groups;
 - deterministic hard filters and a transparent weighted scoring model;
 - explicit buyer feedback events;
-- a weekly digest job with idempotent delivery.
+- a daily digest job with idempotent delivery.
 
 Use acquisition methods in this order of preference:
 

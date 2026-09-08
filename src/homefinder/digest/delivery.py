@@ -1,4 +1,4 @@
-"""Friday delivery timing and exactly-once period claims."""
+"""Daily delivery timing and exactly-once period claims."""
 
 import json
 import re
@@ -41,7 +41,7 @@ class DigestDelivery:
     @staticmethod
     def is_due(at: datetime) -> bool:
         local = at.astimezone(ZoneInfo("Europe/Warsaw"))
-        return local.weekday() == 4 and local.hour == 10
+        return local.hour == 17
 
     def send_once(self, period: str, send: Callable[[], None]) -> bool:
         if not self.ledger.claim(period):
@@ -233,27 +233,25 @@ class DeliveryOutbox:
         return record
 
 
-class FridayScheduler:
+class DailyScheduler:
     @staticmethod
     def scheduled_at(period: str) -> datetime:
         try:
-            year = int(period[:4])
-            week = int(period[6:])
-            friday = date.fromisocalendar(year, week, 5)
-        except (ValueError, IndexError) as error:
-            raise ValueError("period must use ISO YYYY-Www format") from error
-        return datetime.combine(friday, time(10, 0), tzinfo=WARSAW)
+            day = date.fromisoformat(period)
+        except ValueError as error:
+            raise ValueError("period must use ISO YYYY-MM-DD format") from error
+        if day.isoformat() != period:
+            raise ValueError("period must use ISO YYYY-MM-DD format")
+        return datetime.combine(day, time(17, 0), tzinfo=WARSAW)
 
     @classmethod
     def most_recent_due_period(cls, now: datetime) -> str:
         local = now.astimezone(WARSAW)
-        monday = local.date() - timedelta(days=local.weekday())
-        friday = monday + timedelta(days=4)
-        scheduled = datetime.combine(friday, time(10, 0), tzinfo=WARSAW)
+        day = local.date()
+        scheduled = datetime.combine(day, time(17, 0), tzinfo=WARSAW)
         if local < scheduled:
-            friday -= timedelta(days=7)
-        iso = friday.isocalendar()
-        return f"{iso.year:04d}-W{iso.week:02d}"
+            day -= timedelta(days=1)
+        return day.isoformat()
 
 
 class MailtrapApiTransport(MailTransport):
@@ -390,7 +388,7 @@ class DeliveryWorker:
                     subject=(
                         "Homefinder manual report"
                         if claim.period.startswith("M")
-                        else f"Homefinder weekly report {claim.period}"
+                        else f"Homefinder report {claim.period}"
                     ),
                     html_body=html_body,
                     text_body=report.text_body,

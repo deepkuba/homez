@@ -352,7 +352,7 @@ class ReportDraftRecord(Base):
 
     id: Mapped[UUID] = mapped_column(primary_key=True)
     report_key: Mapped[str] = mapped_column(String(64), unique=True)
-    period: Mapped[str] = mapped_column(String(8), index=True)
+    period: Mapped[str] = mapped_column(String(10), index=True)
     cutoff_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     buyer_profile_version: Mapped[int] = mapped_column(
         ForeignKey("buyer_profiles.version")
@@ -391,7 +391,7 @@ class ReportItemRecord(Base):
 class DigestDeliveryRecord(Base):
     __tablename__ = "digest_deliveries"
 
-    period: Mapped[str] = mapped_column(String(8), primary_key=True)
+    period: Mapped[str] = mapped_column(String(10), primary_key=True)
     report_id: Mapped[str] = mapped_column(String(100), unique=True)
     recipient: Mapped[str] = mapped_column(String(320))
     render_version: Mapped[str] = mapped_column(String(50), default="legacy")

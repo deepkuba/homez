@@ -4,7 +4,7 @@
 
 Build a personal decision-support tool that continuously discovers residential
 properties for sale in Krakow, learns the buyer's preferences, ranks suitable
-listings, and sends a concise weekly email containing the strongest new or
+listings, and sends a concise daily email containing the strongest new or
 meaningfully changed matches.
 
 The tool assists discovery and comparison. It does not make purchase decisions
@@ -20,7 +20,7 @@ The most promising shape is a small, source-adapter-based application:
 3. apply hard eligibility filters;
 4. score eligible homes using transparent, user-tunable preferences;
 5. retain feedback and listing history;
-6. email a weekly digest of new, improved, or unusually strong matches.
+6. email a daily digest of new, improved, or unusually strong matches.
 
 This is provisional until the discovery questions are answered. In particular,
 data-source permissions and the desired hosting model can materially change the
@@ -51,7 +51,7 @@ architecture.
    crawling where no API or feed exists?
 7. What should count as "interesting": top score, unusually good value, newly
    listed, reduced price, or a deliberate mix?
-8. How many results should a weekly digest contain, and is urgent notification
+8. How many results should a daily digest contain, and is urgent notification
    needed for exceptional matches?
 9. What feedback will the buyer provide: like/dislike, reason codes, saved homes,
    viewed homes, or pairwise comparisons?

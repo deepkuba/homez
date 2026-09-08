@@ -49,7 +49,7 @@ When the local safety ceiling or provider quota is reached:
   allowance, used/reserved units, affected method/SKU, and queued candidates;
 - mark route-dependent candidates as `routing pending: quota exhausted`;
 - continue ingestion, normalization, non-route enrichment, and database backups;
-- generate the weekly report from still-valid cached routes, visibly label stale
+- generate the daily report from still-valid cached routes, visibly label stale
   route data, and do not claim that an unrouted candidate passes the 45-minute
   hard rule;
 - resume automatically only after the next quota period begins or an operator

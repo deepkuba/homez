@@ -14,6 +14,7 @@ from homefinder.catalog.orm import (
     CandidateFactSetRecord,
     CandidateMatchEvaluationRecord,
     CandidatePresentationRecord,
+    FeedbackEventRecord,
     ListingRecord,
     ListingSnapshotRecord,
     ReportDraftRecord,
@@ -33,7 +34,7 @@ from homefinder.domain.matching import (
 )
 from homefinder.domain.profile import BuyerProfile
 from homefinder.domain.ranking import RankedCandidate, select_slate
-from homefinder.sources.portal_pages import ScrapedListing
+from homefinder.sources.portal_pages import ScrapedListing, extract_recurring_cost_facts
 from homefinder.sources.remote_scraper import RemoteScrapeDeferred
 from homefinder.workflow.models import (
     ClaimedJob,
@@ -43,9 +44,9 @@ from homefinder.workflow.models import (
 from homefinder.workflow.repository import WorkflowRepository
 
 NORMALIZER_VERSION = "catalog-page-v2"
-MATCHER_VERSION = "rules-v1"
-SELECTION_VERSION = "slate-v1"
-RENDER_VERSION = "digest-v2"
+MATCHER_VERSION = "rules-v2"
+SELECTION_VERSION = "slate-v2"
+RENDER_VERSION = "digest-v3"
 REPORT_NAMESPACE = UUID("7e8efea1-64da-4ba1-9a47-f70e23775994")
 
 
@@ -287,6 +288,17 @@ class WorkflowService:
                         if scraped is not None and scraped.description
                         else snapshot.description
                     ),
+                    "monthly_admin_fee_minor": (
+                        scraped.monthly_admin_fee_minor if scraped is not None else None
+                    ),
+                    "heating_type": (
+                        scraped.heating_type if scraped is not None else None
+                    ),
+                    "admin_fee_includes_heating": (
+                        scraped.admin_fee_includes_heating
+                        if scraped is not None
+                        else None
+                    ),
                 }
                 encoded = _canonical(payload)
                 facts_hash = _sha(encoded)
@@ -303,6 +315,9 @@ class WorkflowService:
                                 "availability",
                                 "locality",
                                 "description",
+                                "monthly_admin_fee_minor",
+                                "heating_type",
+                                "admin_fee_includes_heating",
                             )
                         }
                     )
@@ -473,7 +488,12 @@ class WorkflowService:
                 )
             ).all()
             latest: dict[UUID, CandidateMatchEvaluationRecord] = {}
+            feedback_listing_ids = set(
+                session.scalars(select(FeedbackEventRecord.listing_id)).all()
+            )
             for evaluation_record in evaluations:
+                if str(evaluation_record.listing_id) in feedback_listing_ids:
+                    continue
                 latest.setdefault(evaluation_record.candidate_id, evaluation_record)
             candidates = [
                 _ranked_from_record(session, record, profile)
@@ -559,6 +579,11 @@ def _facts_from_payload(
     session: Session,
     fact_set: CandidateFactSetRecord,
 ) -> PropertyFacts:
+    heating_included = payload.get("admin_fee_includes_heating")
+    description = str(payload.get("description") or "")
+    inferred_fee, inferred_heating, inferred_inclusion = extract_recurring_cost_facts(
+        description
+    )
     presentation = session.scalar(
         select(CandidatePresentationRecord)
         .where(CandidatePresentationRecord.candidate_id == fact_set.candidate_id)
@@ -596,6 +621,23 @@ def _facts_from_payload(
             if payload.get("rooms") is not None
             else None
         ),
+        monthly_admin_fee_minor=(
+            _object_int(
+                payload.get("monthly_admin_fee_minor"), "monthly_admin_fee_minor"
+            )
+            if payload.get("monthly_admin_fee_minor") is not None
+            else inferred_fee
+        ),
+        heating_type=(
+            str(payload["heating_type"])
+            if payload.get("heating_type") is not None
+            else inferred_heating
+        ),
+        admin_fee_includes_heating=(
+            heating_included
+            if isinstance(heating_included, bool)
+            else inferred_inclusion
+        ),
         transaction_type=TransactionType.PURCHASE,
         market_type=None,
         last_presented_at=(
@@ -629,6 +671,9 @@ def _serialize_facts(facts: PropertyFacts) -> str:
                 facts.transaction_type.value if facts.transaction_type else None
             ),
             "market_type": facts.market_type.value if facts.market_type else None,
+            "monthly_admin_fee_minor": facts.monthly_admin_fee_minor,
+            "heating_type": facts.heating_type,
+            "admin_fee_includes_heating": facts.admin_fee_includes_heating,
         }
     )
 
@@ -649,6 +694,16 @@ def _serialize_explanation(value: MatchExplanation) -> str:
                     "distance": rule.distance,
                 }
                 for rule in value.eligibility
+            ],
+            "preferences": [
+                {
+                    "name": rule.name,
+                    "state": rule.state.value,
+                    "actual": rule.actual,
+                    "threshold": rule.threshold,
+                    "distance": rule.distance,
+                }
+                for rule in value.preferences
             ],
         }
     )

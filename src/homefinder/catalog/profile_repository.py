@@ -84,6 +84,9 @@ def _serialize(profile: BuyerProfile) -> str:
         "max_purchase_price_minor": profile.max_purchase_price_minor,
         "core_purchase_price_minor": profile.core_purchase_price_minor,
         "max_monthly_installment_minor": profile.max_monthly_installment_minor,
+        "reference_admin_fee_including_heating_minor": (
+            profile.reference_admin_fee_including_heating_minor
+        ),
         "cash_budget_minor": profile.cash_budget_minor,
         "max_building_dwellings": profile.max_building_dwellings,
         "excluded_localities": sorted(profile.excluded_localities),
@@ -108,6 +111,9 @@ def _deserialize(value: str) -> BuyerProfile:
         max_purchase_price_minor=int(payload["max_purchase_price_minor"]),
         core_purchase_price_minor=int(payload["core_purchase_price_minor"]),
         max_monthly_installment_minor=int(payload["max_monthly_installment_minor"]),
+        reference_admin_fee_including_heating_minor=int(
+            payload.get("reference_admin_fee_including_heating_minor", 50_000)
+        ),
         cash_budget_minor=int(payload["cash_budget_minor"]),
         max_building_dwellings=int(payload["max_building_dwellings"]),
         excluded_localities=frozenset(

@@ -86,6 +86,37 @@ def test_digest_groups_and_escapes_match_criteria() -> None:
     assert "Unknown / needs verification: <commute>: actual unknown" in plain
 
 
+def test_digest_renders_non_blocking_preferences_as_criteria() -> None:
+    explanation = MatchExplanation(
+        (),
+        (),
+        Decimal("8.50"),
+        Decimal("0.90"),
+        (),
+        (
+            RuleResult(
+                "heating",
+                TriState.PASS,
+                "district",
+                "district heating / MPEC",
+                "meets preference",
+            ),
+        ),
+    )
+    item = DigestItem(
+        RankedCandidate(PropertyFacts(id="one", title="Flat"), explanation),
+        "https://example.invalid/a",
+    )
+
+    html, plain = render_digest(
+        Digest("report-1", datetime(2026, 9, 4, tzinfo=timezone.utc), (item,), ())
+    )
+
+    assert "heating: actual district" in html
+    assert "heating: actual district" in plain
+    assert "Preferences met" in html
+
+
 def test_feedback_requires_post_csrf_and_single_use_scoped_token() -> None:
     now = datetime(2026, 9, 4, tzinfo=timezone.utc)
     tokens = TokenStore()
@@ -121,13 +152,15 @@ def test_feedback_requires_post_csrf_and_single_use_scoped_token() -> None:
         )
 
 
-def test_delivery_ledger_is_idempotent_and_friday_schedule_is_warsaw() -> None:
+def test_delivery_ledger_is_idempotent_and_daily_schedule_is_warsaw() -> None:
     ledger = InMemoryDeliveryLedger()
     delivery = DigestDelivery(ledger)
-    friday = datetime(2026, 9, 4, 8, 0, tzinfo=timezone.utc)  # 10:00 Warsaw
-    assert delivery.is_due(friday)
-    assert delivery.send_once("2026-W36", lambda: None) is True
+    scheduled = datetime(2026, 9, 4, 15, 0, tzinfo=timezone.utc)  # 17:00 Warsaw
+    assert delivery.is_due(scheduled)
+    assert delivery.send_once("2026-09-04", lambda: None) is True
     assert (
-        delivery.send_once("2026-W36", lambda: (_ for _ in ()).throw(AssertionError()))
+        delivery.send_once(
+            "2026-09-04", lambda: (_ for _ in ()).throw(AssertionError())
+        )
         is False
     )

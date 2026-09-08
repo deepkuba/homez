@@ -1,4 +1,4 @@
-# ADR 0013: Provide token-free sharing and deliver Friday at 10:00
+# ADR 0013: Provide token-free sharing and deliver daily at 17:00
 
 - Status: Accepted
 - Date: 2026-08-30
@@ -6,7 +6,7 @@
 ## Context
 
 The buyer wants to forward interesting listings without exposing private feedback
-links. The weekly report should arrive Friday at 10:00.
+links. The report should arrive every day at 17:00.
 
 Forwarding the entire personalized digest would also forward still-valid feedback
 capabilities. Email-client rendering and copy behavior vary, so visual separation
@@ -40,11 +40,11 @@ the generated message itself contains no private capability.
 
 ## Delivery schedule
 
-Generate and send the digest every Friday at 10:00 in the `Europe/Warsaw` IANA
+Generate and send the digest every day at 17:00 in the `Europe/Warsaw` IANA
 timezone, honoring daylight-saving changes. Make report generation idempotent by
 scheduled period so retries cannot send duplicate emails.
 
-If the scheduler was offline at 10:00, send one catch-up report after recovery and
+If the scheduler was offline at 17:00, send one catch-up report after recovery and
 label it delayed. Do not send a stale catch-up after a configurable cutoff,
 initially 24 hours; send an operational failure notification instead.
 

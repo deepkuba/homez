@@ -92,7 +92,7 @@ or personal email content in Git, issues, or this checklist.
   action.
 - [ ] Test “Share safely” and confirm the prepared message contains no private
   feedback link, token, personal note, or buyer-profile information.
-- [ ] Approve at least two shadow reports before enabling Friday 10:00 delivery.
+- [ ] Approve at least two shadow reports before enabling daily 17:00 delivery.
 
 ## Before production deployment
 
@@ -103,11 +103,11 @@ or personal email content in Git, issues, or this checklist.
   backup files.
 - [ ] Receive and recognize a test operational-failure notification.
 - [ ] Witness or review evidence of a successful database restore from NAS backup.
-- [ ] Explicitly approve live Friday 10:00 Europe/Warsaw delivery.
+- [ ] Explicitly approve live daily 17:00 Europe/Warsaw delivery.
 
 ## During the four-week pilot
 
-- [ ] Review every weekly report and use the feedback actions consistently.
+- [ ] Review every daily report and use the feedback actions consistently.
 - [ ] Flag duplicate properties that were not merged.
 - [ ] Flag listings incorrectly marked eligible or ineligible.
 - [ ] Report incorrect commute, noise, building-size, legal-form, or cost facts.

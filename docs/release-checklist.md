@@ -1,6 +1,6 @@
 # MVP release evidence checklist
 
-Live Friday delivery remains disabled until every required automated gate and
+Live daily delivery remains disabled until every required automated gate and
 human-only gate below has linked evidence. Store only non-sensitive identifiers,
 timestamps, hashes, and results. Never attach credentials, raw email, capability
 URLs, database dumps, personal addresses, or provider response bodies.
@@ -53,7 +53,7 @@ for each drill. Do not paste message contents or private URLs.
 
 Before enabling delivery, verify every other `MVP` issue is closed or has an
 owner-approved waiver with residual risk. Confirm firewall/deployment authority
-#56, secure secret entry #58, NAS/key controls #60/#62, and explicit live Friday
+#56, secure secret entry #58, NAS/key controls #60/#62, and explicit live daily
 approval #69. Record the rollback procedure and recovery point, then add the
 owner’s approval and timestamp to #138.
 

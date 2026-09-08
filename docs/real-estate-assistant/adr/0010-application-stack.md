@@ -18,7 +18,7 @@ Use:
 - PostGIS for coordinates, proximity, spatial indexing, and geographic features;
 - SQLAlchemy plus Alembic for persistence and schema migrations;
 - a lightweight scheduler or system cron for inbox polling, enrichment, backups,
-  and weekly report generation;
+  and daily report generation;
 - a small HTTP/admin interface only where OAuth callbacks, health checks, or
   feedback links require it;
 - Playwright in an isolated worker only for sources whose reviewed access method

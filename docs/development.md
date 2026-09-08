@@ -191,7 +191,7 @@ persistent outbox claims
 prepared drafts with a fenced token, retries
 only pre-acknowledgement failures, and reuses a stable provider idempotency key
 after stale-claim recovery. `schedule-delivery` calculates the most recent due
-Friday 10:00 `Europe/Warsaw` period, including DST and delayed recovery;
+daily 17:00 `Europe/Warsaw` period, including DST and delayed recovery;
 `delivery-worker` sends through Mailtrap's HTTPS API and requires a successful
 response containing exactly one provider message ID. Configure only secret-file
 paths for the recipient and provider token. Do not put feedback URLs in shared

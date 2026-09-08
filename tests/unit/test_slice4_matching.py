@@ -64,6 +64,39 @@ def test_golden_eligible_listing_has_transparent_score_and_confidence() -> None:
     }
 
 
+def test_admin_fee_and_heating_are_visible_non_blocking_preferences() -> None:
+    result = evaluate(
+        _facts(
+            monthly_admin_fee_minor=65_000,
+            heating_type="gas",
+            admin_fee_includes_heating=False,
+        ),
+        BuyerProfile(),
+    )
+
+    assert result.eligible
+    preferences = {rule.name: rule for rule in result.preferences}
+    assert preferences["monthly_admin_fee"].state is TriState.UNKNOWN
+    assert "PLN 500.00" in preferences["monthly_admin_fee"].threshold
+    assert preferences["heating"].state is TriState.FAIL
+    assert preferences["heating"].actual == "gas"
+
+
+def test_500_pln_admin_fee_including_mpec_meets_preferences() -> None:
+    result = evaluate(
+        _facts(
+            monthly_admin_fee_minor=50_000,
+            heating_type="district",
+            admin_fee_includes_heating=True,
+        ),
+        BuyerProfile(),
+    )
+
+    preferences = {rule.name: rule for rule in result.preferences}
+    assert preferences["monthly_admin_fee"].state is TriState.PASS
+    assert preferences["heating"].state is TriState.PASS
+
+
 def test_failed_rule_cannot_be_overridden_by_score_and_unknown_stays_visible() -> None:
     result = evaluate(
         _facts(

@@ -23,6 +23,9 @@
 
 ## Strong preferences
 
+- District heating (MPEC) is preferred over other heating types.
+- PLN 500/month is the reference administrative fee when it includes heating;
+  higher or non-comparable fees remain visible but do not disqualify a listing.
 - Ready to move in.
 - Avoid finishing or renovation where possible.
 - If work is required, show an explicit estimated cost range and include it in
@@ -74,14 +77,14 @@ descriptions:
 
 - Every regular report should contain the same number of exploration listings as
   preferred/compliant listings—a 1:1 mix.
-- Initial weekly target: 10 preferred/compliant listings plus 10 exploration
+- Initial report target: 10 preferred/compliant listings plus 10 exploration
   listings.
 - Portal alerts may be ingested through a dedicated managed mailbox.
 - Each listing card should link to a mobile-friendly feedback page using an
   expiring, listing-scoped token.
 - Each listing should also be easy to forward without exposing private feedback
   tokens: provide a prefilled share-safe email and a token-free copy block.
-- Weekly report delivery: Friday at 10:00 Europe/Warsaw time.
+- Daily report delivery: 17:00 Europe/Warsaw time.
 - If fewer than 10 compliant listings are available, include all worthwhile
   compliant listings and still allow up to 10 exploration listings; do not pad
   either section with stale or low-information duplicates.

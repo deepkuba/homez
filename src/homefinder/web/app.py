@@ -238,6 +238,8 @@ def create_app(
             '<select id=reason-code name="reason_code">'
             "<option value=''>Wybierz powód</option>"
             '<option value="too_expensive">Za wysoka cena</option>'
+            '<option value="too_high_admin_fee">Za wysoki czynsz</option>'
+            '<option value="unsuitable_heating">Nieodpowiednie ogrzewanie</option>'
             '<option value="wrong_location">Nieodpowiednia lokalizacja</option>'
             '<option value="too_small">Za mały metraż</option>'
             '<option value="too_few_rooms">Za mało pokoi</option>'
@@ -438,6 +440,8 @@ _FEEDBACK_LABELS = {
 }
 _REASON_LABELS = {
     "too_expensive": "Za wysoka cena",
+    "too_high_admin_fee": "Za wysoki czynsz",
+    "unsuitable_heating": "Nieodpowiednie ogrzewanie",
     "wrong_location": "Nieodpowiednia lokalizacja",
     "too_small": "Za mały metraż",
     "too_few_rooms": "Za mało pokoi",

@@ -8,7 +8,7 @@
 
 A private, single-buyer service that ingests permitted property alerts, maintains
 a deduplicated Krakow-area listing history, applies transparent constraints and
-preferences, and sends a Friday 10:00 report with up to 10 compliant and 10
+preferences, and sends a daily 17:00 report with up to 10 compliant and 10
 exploration listings. It learns soft preferences from secure mobile feedback and
 never silently changes hard rules.
 
@@ -23,7 +23,7 @@ never silently changes hard rules.
   10+10 weekly selection.
 - Google Routes multimodal commute enrichment with a hard free-quota guard.
 - All-in acquisition and recurring-cost presentation.
-- Friday email, safe sharing, and token-scoped mobile feedback.
+- Daily email, safe sharing, and token-scoped mobile feedback.
 - Progressive noise, green-space, building-scale, renovation, legal-title, and
   developer/project evidence.
 - VPS deployment, monitoring, and encrypted NAS backup.
@@ -118,7 +118,7 @@ tokens, buyer data, database dumps, and generated reports remain outside Git.
   a failed rule.
 - Every score exposes its components, evidence confidence, and important missing
   data.
-- The Friday report selects up to 10 compliant and 10 varied exploration listings
+- The daily report selects up to 10 compliant and 10 varied exploration listings
   after deduplication, cooldown, and material-change checks.
 - Each exploration item names every failed rule and threshold distance.
 - Effective all-in price includes known mandatory parking/storage, fees,
@@ -318,7 +318,7 @@ reports remaining quota and the oldest pending route.
 feedback tests, and Mailtrap sandbox/transactional API wiring. A reviewed
 sandbox send and real-device preview remain buyer/deployment prerequisites.
 
-**Coding agent:** responsive HTML/plain-text templates, Friday scheduling,
+**Coding agent:** responsive HTML/plain-text templates, daily scheduling,
 idempotent delivery, 10+10 sections, share-safe `mailto`/copy content, token model,
 mobile form, feedback events, CSRF protection, rate limits, and audit history.
 
@@ -330,7 +330,7 @@ prevents token reuse, and confirms share content contains no private token.
 
 **Implemented:** escaped HTML/plain-text digest rendering with separate
 compliant/exploration sections; share text without feedback URLs or profile
-details; Friday 10:00 Europe/Warsaw due-window logic; retryable period-level
+details; daily 17:00 Europe/Warsaw due-window logic; retryable period-level
 delivery idempotency; hashed, expiring, report/listing-scoped single-use
 tokens; POST-only feedback with CSRF comparison and rate limiting; a minimal
 feedback endpoint; and the `digest_deliveries`, `feedback_tokens`, and
@@ -339,7 +339,7 @@ feedback repositories plus the Mailtrap API adapter. Mailtrap's undocumented
 handling of `Idempotency-Key` leaves ambiguous-timeout duplicate risk that must
 be accepted or mitigated before live delivery.
 
-**First usable release:** enable weekly delivery after Slices 0-6 and a buyer-
+**First usable release:** enable daily delivery after Slices 0-6 and a buyer-
 approved shadow report. Do not wait for every enrichment below.
 
 ### Slice 7 — Environmental and building enrichment
@@ -443,14 +443,14 @@ dependency/security scanning, runbooks, and failure drills.
 
 **Buyer required:** authorize VPS/NAS deployment and firewall/DNS changes, securely
 enter secrets, receive a test failure notification, witness backup restoration,
-and approve live Friday delivery.
+and approve live daily delivery.
 
 **Exit:** four-week pilot completes with weekly review of misses, false positives,
 duplicates, source failures, quota usage, and proposed soft-weight adjustments.
 
 **Remaining human exit evidence:** authorize VPS/NAS changes and secret entry,
 run the clean-database restore drill, test failure notification delivery, and
-complete the four-week shadow/pilot review before enabling live Friday delivery.
+complete the four-week shadow/pilot review before enabling live daily delivery.
 
 ## 7. Attention and ownership matrix
 
@@ -511,7 +511,7 @@ The first failing test is:
 - Expired/forwarded/scanner-opened token behavior.
 - Source outage, malformed email, duplicate listing, hidden address, and empty
   compliant pool.
-- Buyer reviews at least two shadow reports before live weekly sending.
+- Buyer reviews at least two shadow reports before live daily sending.
 
 ## 9. Security review gate
 

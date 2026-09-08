@@ -5,7 +5,7 @@ proxy. Homez must not run its bundled Caddy on this host. The public proxy owns
 ports 80 and 443; Homez exposes only its web process on a loopback port, while
 PostGIS, workers, health, and administrative routes remain private.
 
-Live Friday delivery remains disabled until the production-like shadow phase,
+Live daily delivery remains disabled until the production-like shadow phase,
 operational drills, and buyer approvals are complete.
 
 ## Target architecture

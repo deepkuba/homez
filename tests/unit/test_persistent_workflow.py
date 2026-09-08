@@ -14,6 +14,7 @@ from homefinder.catalog.orm import (
     CandidateFactSetRecord,
     CandidateMatchEvaluationRecord,
     CandidatePresentationRecord,
+    FeedbackEventRecord,
     ReportDraftRecord,
     ReportItemRecord,
     SourceMessageItemRecord,
@@ -181,7 +182,7 @@ def test_sanitized_alert_reaches_idempotent_unknown_safe_report(
         assert session.scalar(select(func.count(ReportDraftRecord.id))) == 1
         report = session.get(ReportDraftRecord, first)
         assert report is not None
-        assert report.render_version == "digest-v2"
+        assert report.render_version == "digest-v3"
         assert "Criteria not met" in report.html_body
         assert 'data-homez-feedback-slot="exploration-1"' in report.html_body
         items = session.scalars(select(ReportItemRecord)).all()
@@ -190,6 +191,56 @@ def test_sanitized_alert_reaches_idempotent_unknown_safe_report(
         assert session.scalar(select(func.count(CandidatePresentationRecord.id))) == 0
         assert (
             session.scalar(select(func.count(CandidateMatchEvaluationRecord.id))) == 1
+        )
+
+
+def test_report_excludes_listing_that_already_has_feedback(tmp_path: Path) -> None:
+    sessions = _sessions(tmp_path)
+    with sessions() as session:
+        AlertIngestionService(
+            parser=SamplePortalAlertParser(),
+            catalog=SqlAlchemyCatalogRepository(session),
+        ).ingest(FIXTURE.read_bytes())
+        profiles = SqlAlchemyBuyerProfileRepository(session)
+        profiles.add_draft(BuyerProfile(), created_at=NOW)
+        profiles.approve(1, approved_by="buyer", approved_at=NOW)
+
+    workflow = WorkflowService(sessions)
+    workflow.reconcile_catalog(now=NOW)
+    workflow.run_until_idle(worker_id="test-worker", now=NOW)
+    with sessions() as session:
+        evaluation = session.scalar(select(CandidateMatchEvaluationRecord))
+        assert evaluation is not None
+        session.add(
+            FeedbackEventRecord(
+                id=uuid4(),
+                token_hash=None,
+                report_id="older-report",
+                listing_id=str(evaluation.listing_id),
+                value="save",
+                reason_code=None,
+                comment=None,
+                actor_hash="a" * 64,
+                recorded_at=NOW,
+            )
+        )
+        session.commit()
+
+    report_id = workflow.prepare_report(
+        period="2026-W37",
+        cutoff_at=NOW + timedelta(hours=1),
+        routing_goal_version=1,
+        now=NOW + timedelta(hours=1),
+    )
+
+    with sessions() as session:
+        assert (
+            session.scalar(
+                select(func.count(ReportItemRecord.position)).where(
+                    ReportItemRecord.report_id == report_id
+                )
+            )
+            == 0
         )
 
 

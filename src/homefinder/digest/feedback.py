@@ -42,6 +42,8 @@ class FeedbackEvent:
 DISLIKE_REASONS = frozenset(
     {
         "too_expensive",
+        "too_high_admin_fee",
+        "unsuitable_heating",
         "wrong_location",
         "too_small",
         "too_few_rooms",
