@@ -386,12 +386,30 @@ def test_both_slate_sections_are_diversified_and_obey_resurfacing_policy() -> No
         properties, BuyerProfile(), limit=3, now=now, cooldown=timedelta(days=7)
     )
 
-    assert [item.facts.locality for item in slate.compliant[:2]] == [
-        "Kraków",
-        "Wieliczka",
-    ]
+    assert len({item.facts.locality for item in slate.compliant}) == 2
     assert len({item.facts.locality for item in slate.exploration}) == 3
     selected_ids = {item.facts.id for item in (*slate.compliant, *slate.exploration)}
     assert "cooldown-good" not in selected_ids
     assert "cooldown-bad" not in selected_ids
     assert "changed-bad" in selected_ids
+
+
+def test_selected_slate_is_presented_by_descending_match_score() -> None:
+    properties = [
+        _facts("best-krakow", locality="Kraków"),
+        _facts("middle-krakow", locality="Kraków", ready_to_move=False),
+        _facts(
+            "lowest-wieliczka",
+            locality="Wieliczka",
+            ready_to_move=False,
+            quiet=False,
+            green_space=False,
+            balcony=False,
+            separate_kitchen=False,
+        ),
+    ]
+
+    slate = select_slate(properties, BuyerProfile(), limit=3)
+
+    scores = [item.explanation.score for item in slate.compliant]
+    assert scores == sorted(scores, reverse=True)

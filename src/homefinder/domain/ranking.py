@@ -71,9 +71,15 @@ def _diversify(
         remaining.remove(candidate)
         localities.add(locality.casefold())
         if len(selected) == limit:
-            return tuple(selected)
+            return _by_score(selected)
     selected.extend(remaining[: max(0, limit - len(selected))])
-    return tuple(selected)
+    return _by_score(selected)
+
+
+def _by_score(candidates: list[RankedCandidate]) -> tuple[RankedCandidate, ...]:
+    return tuple(
+        sorted(candidates, key=lambda item: (-item.explanation.score, item.facts.id))
+    )
 
 
 def _can_present(facts: PropertyFacts, now: datetime, cooldown: timedelta) -> bool:

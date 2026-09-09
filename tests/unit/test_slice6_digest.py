@@ -175,6 +175,9 @@ def test_digest_uses_separated_cards_and_color_coded_criteria_table() -> None:
     assert 'data-status="slight"' in html
     assert 'data-status="unknown"' in html
     assert 'data-status="strong"' in html
+    assert html.index('data-status="strong"') < html.index('data-status="met"')
+    assert html.index('data-status="met"') < html.index('data-status="slight"')
+    assert html.index('data-status="slight"') < html.index('data-status="unknown"')
     assert "Dopasowanie: 55/100" in html
     assert "Powierzchnia" in html
     assert "Czynsz administracyjny" in html
@@ -183,6 +186,42 @@ def test_digest_uses_separated_cards_and_color_coded_criteria_table() -> None:
     assert "monthly_admin_fee" not in plain
     assert "Skontaktuj się" not in html
     assert "Skontaktuj sie" not in html
+
+
+def test_digest_sorts_offers_by_score_and_places_actions_above_criteria() -> None:
+    def item(identifier: str, score: str) -> DigestItem:
+        explanation = MatchExplanation(
+            (RuleResult("area", TriState.PASS, "52 m²", "40 m²", "met"),),
+            (),
+            Decimal(score),
+            Decimal("1"),
+            (),
+        )
+        return DigestItem(
+            RankedCandidate(
+                PropertyFacts(id=identifier, title=f"Offer {identifier}"), explanation
+            ),
+            f"https://example.invalid/{identifier}",
+        )
+
+    html, plain = render_digest(
+        Digest(
+            "report-1",
+            datetime(2026, 9, 4, tzinfo=timezone.utc),
+            (item("low", "35"), item("high", "90")),
+            (),
+        ),
+        token_urls={
+            "low": "https://feedback.invalid/low",
+            "high": "https://feedback.invalid/high",
+        },
+    )
+
+    assert html.index("Offer high") < html.index("Offer low")
+    assert plain.index("Offer high") < plain.index("Offer low")
+    first_card = html[html.index('class="listing-card"') : html.index("</article>")]
+    assert first_card.index("Zobacz ogłoszenie") < first_card.index(">Kryterium</th>")
+    assert first_card.index("Oceń ofertę") < first_card.index(">Kryterium</th>")
 
 
 def test_feedback_requires_post_csrf_and_single_use_scoped_token() -> None:

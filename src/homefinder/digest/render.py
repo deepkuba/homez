@@ -78,7 +78,14 @@ def render_digest(
     ):
         cards: list[str] = []
         lines = [heading]
-        for position, item in enumerate(items, start=1):
+        sorted_items = sorted(
+            items,
+            key=lambda item: (
+                -item.candidate.explanation.score,
+                item.candidate.facts.id,
+            ),
+        )
+        for position, item in enumerate(sorted_items, start=1):
             card, plain_card = _render_item(
                 item,
                 section_key=section_key,
@@ -151,11 +158,12 @@ def _render_item(
         '<div style="background:#e2e8f0;border-radius:999px;height:7px;'
         "margin:14px 0 12px;"
         'overflow:hidden"><div style="background:#2563eb;height:7px;width:'
-        f'{score_width}%"></div></div><div style="margin-bottom:16px">{badges}</div>'
-        f"{criteria_html}{risk}"
-        f'<p style="margin:18px 0 0"><a href="{url}" rel="noreferrer noopener" '
+        f'{score_width}%"></div></div>'
+        f'<p style="margin:12px 0 16px"><a href="{url}" rel="noreferrer noopener" '
         'style="background:#2563eb;border-radius:6px;color:#ffffff;display:inline-block;'
         f'padding:10px 14px;text-decoration:none">Zobacz ogłoszenie</a>{feedback}</p>'
+        f'<div style="margin-bottom:16px">{badges}</div>'
+        f"{criteria_html}{risk}"
         "</article>"
     )
     plain = (
@@ -237,7 +245,7 @@ def _summary_badge(status: _PresentationStatus, count: int) -> str:
 
 
 def _status_order(status: _PresentationStatus) -> int:
-    return {"strong": 0, "slight": 1, "unknown": 2, "met": 3}[status.key]
+    return {"strong": 0, "met": 1, "slight": 2, "unknown": 3}[status.key]
 
 
 def _rule_label(name: str) -> str:

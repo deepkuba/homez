@@ -70,10 +70,10 @@ the failed rules and distance from thresholds.
 
 ### Ordering within the email
 
-The selected compliant section is ordered by candidate score after slate
-selection. The selected exploration section is ordered by expected usefulness,
-not by pretending ineligible homes have compliant scores. Each card states why it
-was selected this week.
+Both selected sections are ordered by candidate score after diversified slate
+selection. Eligibility remains visible and non-overridable, so a high score does
+not make an exploration listing compliant. Each card states why it was selected
+this week.
 
 ## Repetition and change rules
 
