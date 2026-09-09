@@ -48,6 +48,8 @@ class Settings(BaseSettings):
     feedback_rate_salt_file: Path | None = None
     admin_bearer_token_file: Path | None = None
     backup_key_file: Path | None = None
+    concurrent_scraping_enabled: bool = False
+    candidate_benchmark_enabled: bool = False
     scraper_token_file: Path | None = None
     scraper_olx_endpoint: str | None = None
     scraper_olx_fallback_endpoint: str | None = None

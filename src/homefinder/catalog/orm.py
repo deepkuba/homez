@@ -579,3 +579,66 @@ class PrimaryMarketManualTaskRecord(Base):
     completed_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+
+
+class ParserReleaseRecord(Base):
+    """Identifier skeleton; activation and provenance arrive in Slice 7."""
+
+    __tablename__ = "parser_releases"
+    __table_args__ = (
+        CheckConstraint(
+            "source IN ('gratka', 'morizon', 'otodom', 'olx')",
+            name="ck_parser_release_source",
+        ),
+        UniqueConstraint("source", "release_hash"),
+    )
+
+    release_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    source: Mapped[str] = mapped_column(String(20))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class PageCaptureRecord(Base):
+    """Immutable download metadata, distinct from catalog observations."""
+
+    __tablename__ = "page_captures"
+    __table_args__ = (
+        CheckConstraint(
+            "size_bytes >= 0 AND size_bytes <= 2000000",
+            name="ck_page_capture_size",
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True)
+    snapshot_id: Mapped[UUID] = mapped_column(ForeignKey("listing_snapshots.id"))
+    fetched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    content_hash: Mapped[str] = mapped_column(String(64))
+    size_bytes: Mapped[int]
+
+
+class ScrapeTaskRecord(Base):
+    """Dark queue identity; no claim path is installed by this expansion."""
+
+    __tablename__ = "scrape_tasks"
+    __table_args__ = (
+        CheckConstraint(
+            "source IN ('gratka', 'morizon', 'otodom', 'olx')",
+            name="ck_scrape_task_source",
+        ),
+        CheckConstraint(
+            "task_class IN ('live', 'artifact_recovery', 'network_recovery')",
+            name="ck_scrape_task_class",
+        ),
+        CheckConstraint("activation_epoch > 0", name="ck_scrape_task_epoch"),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True)
+    source: Mapped[str] = mapped_column(String(20))
+    snapshot_id: Mapped[UUID] = mapped_column(ForeignKey("listing_snapshots.id"))
+    canonical_url: Mapped[str] = mapped_column(String(2048))
+    task_class: Mapped[str] = mapped_column(String(30))
+    release_hash: Mapped[str] = mapped_column(
+        ForeignKey("parser_releases.release_hash")
+    )
+    activation_epoch: Mapped[int]
+    idempotency_key: Mapped[str] = mapped_column(String(64), unique=True)
