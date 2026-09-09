@@ -9,6 +9,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import ArgumentError
 
+from homefinder.scrape_queue.contracts import QueuePolicy
 from homefinder.sources.gmail import read_secret_text
 
 
@@ -49,6 +50,13 @@ class Settings(BaseSettings):
     admin_bearer_token_file: Path | None = None
     backup_key_file: Path | None = None
     concurrent_scraping_enabled: bool = False
+    coordinator_credentials_file: Path | None = None
+    scrape_lease_seconds: int = 60
+    scrape_heartbeat_seconds: int = 20
+    scrape_max_lease_seconds: int = 600
+    scrape_worker_health_seconds: int = 90
+    scrape_max_attempts: int = 8
+    scrape_metadata_retention_days: int = 30
     candidate_benchmark_enabled: bool = False
     scraper_token_file: Path | None = None
     scraper_olx_endpoint: str | None = None
@@ -59,6 +67,26 @@ class Settings(BaseSettings):
     scraper_morizon_fallback_endpoint: str | None = None
     scraper_gratka_endpoint: str | None = None
     scraper_gratka_fallback_endpoint: str | None = None
+
+    @model_validator(mode="after")
+    def validate_coordinator(self) -> Settings:
+        self.scrape_queue_policy()
+        if (
+            self.concurrent_scraping_enabled
+            and self.coordinator_credentials_file is None
+        ):
+            raise ValueError("coordinator credentials file is required")
+        return self
+
+    def scrape_queue_policy(self) -> QueuePolicy:
+        return QueuePolicy(
+            lease_seconds=self.scrape_lease_seconds,
+            heartbeat_seconds=self.scrape_heartbeat_seconds,
+            max_lease_seconds=self.scrape_max_lease_seconds,
+            worker_health_seconds=self.scrape_worker_health_seconds,
+            max_attempts=self.scrape_max_attempts,
+            metadata_retention_days=self.scrape_metadata_retention_days,
+        )
 
     @model_validator(mode="after")
     def validate_database(self) -> Settings:

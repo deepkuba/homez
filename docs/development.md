@@ -265,3 +265,79 @@ to show concern and missing critical checks. Migration `20260831_09` is the
 persistence boundary; production needs authorized register access, protected
 document storage, authentication for task review, and independent legal/
 financial review.
+
+## ADR 0017 central scrape coordinator (Slice 1)
+
+The concurrent path remains disabled by default. Slice 1 adds an internal queue
+and worker API; it does not switch workflow normalization, activate a parser, or
+release the production backlog. Keep the flag off until the subsequent worker,
+source-budget, artifact, and release gates are satisfied.
+
+The coordinator owns PostgreSQL sessions. Workers receive only their individual
+bearer credential and the private coordinator address. The credential registry
+is a private secret file selected by
+`HOMEFINDER_COORDINATOR_CREDENTIALS_FILE`: a JSON array of entries with an
+`identity` object (`worker_id`, `source`, `deployment`) and a
+`token_sha256` digest. Each credential binds exactly one NAS or VPS worker to
+one portal; duplicate identities/digests, unsafe file permissions, and invalid
+registries fail closed. Tokens belong in worker secret files, never task payloads
+or database rows. Production credential creation and provisioning remain
+deployment gates.
+
+With `HOMEFINDER_CONCURRENT_SCRAPING_ENABLED=true` and a credential-file path,
+the web app mounts these private routes under `/internal/scrape/v1`:
+
+- `POST /workers/heartbeat`: bounded executable release hashes and health.
+- `POST /claim`: optional production task classes; source and deployment come
+  from authentication.
+- `POST /heartbeat`, `/succeed`, `/fail`, `/defer`: current lease and bounded
+  typed metadata only.
+- `GET /status`: source-scoped safe metadata, with `limit` and opaque `before`
+  cursor pagination.
+
+No route enqueues work, releases recovery, activates a parser, or accepts raw
+response content. The public Caddy route remains restricted to `/feedback/*`.
+Tailnet access to the coordinator is not provisioned by this slice.
+
+The queue pins work to the current portal release/epoch, requires a healthy
+advertising worker, prioritizes live tasks over recovery, and uses PostgreSQL
+`FOR UPDATE SKIP LOCKED` for claims. A source pointer is share-locked through
+claim/acknowledgement transactions, so future activation updates serialize with
+them. Expired, foreign, already completed, and withdrawn-epoch leases are rejected.
+The server checks lease time again after acquiring locks. Network recovery is
+created in `held` state with no release endpoint in this slice.
+
+Validated defaults (all with the `HOMEFINDER_` prefix):
+
+| Setting | Default |
+| --- | ---: |
+| `SCRAPE_LEASE_SECONDS` | 60 |
+| `SCRAPE_HEARTBEAT_SECONDS` | 20 |
+| `SCRAPE_MAX_LEASE_SECONDS` | 600 |
+| `SCRAPE_WORKER_HEALTH_SECONDS` | 90 |
+| `SCRAPE_MAX_ATTEMPTS` | 8 |
+| `SCRAPE_METADATA_RETENTION_DAYS` | 30 |
+
+Heartbeats must precede expiry; renewal cannot exceed the maximum lease lifetime.
+Workers must also refresh their capability heartbeat. Transport failures retry
+with bounded backoff; parser failures are terminal, and expired attempts are
+audited before replacement. The metadata-retention setting is reserved for the
+later purge implementation; it does not change capture/result retention.
+
+Migration `20260909_23` expands the dark queue and creates worker, attempt, and
+empty activation-pointer tables. It seeds no active release. The pointer is
+introduced before Slice 7 solely to fence queue transactions; audited activation
+and rollback tooling still belong to Slice 7. Legacy workflow/report tables and
+the fallback path are unchanged.
+
+Run focused checks without contacting portals:
+
+```bash
+.venv/bin/pytest tests/unit/test_scrape_queue.py \
+  tests/unit/test_scrape_coordinator_api.py tests/architecture
+# TEST_POSTGRES_URL must identify a disposable local/CI PostGIS database.
+.venv/bin/pytest tests/integration/test_scrape_queue_postgres.py
+```
+
+PostgreSQL-marked tests truncate application tables through the existing test
+fixture. Never point them at a production or otherwise valuable database.

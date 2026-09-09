@@ -45,6 +45,8 @@ from homefinder.domain.profile import BuyerProfile
 from homefinder.enrichment.environment import ManualCorrectionStore
 from homefinder.operations.health import HealthRegistry, HealthState
 from homefinder.operations.logging import setup_logging
+from homefinder.scrape_queue.api import create_coordinator_router
+from homefinder.scrape_queue.repository import ScrapeQueueRepository
 from homefinder.sources.gmail import TokenError, read_secret_text
 from homefinder.web.scraper_errors import (
     InvalidScraperErrorCursor,
@@ -74,6 +76,19 @@ def create_app(
     engine = create_engine(application.state.settings.database_url.get_secret_value())
     sessions = sessionmaker(engine, expire_on_commit=False)
     application.state.sessions = sessions
+    coordinator_settings: Settings = application.state.settings
+    if coordinator_settings.concurrent_scraping_enabled:
+        credentials_file = coordinator_settings.coordinator_credentials_file
+        if credentials_file is None:
+            raise ValueError("coordinator credentials file is required")
+        application.include_router(
+            create_coordinator_router(
+                ScrapeQueueRepository(
+                    sessions, policy=coordinator_settings.scrape_queue_policy()
+                ),
+                credentials_file=credentials_file,
+            )
+        )
     application.state.feedback_service = feedback_service or SqlAlchemyFeedbackService(
         sessions
     )

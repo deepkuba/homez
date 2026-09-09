@@ -40,7 +40,7 @@ def test_expand_migration_keeps_catalog_and_capture_distinct(tmp_path, monkeypat
     command.upgrade(Config("alembic.ini"), "20260908_21")
     engine = create_engine(url)
     before = set(inspect(engine).get_table_names())
-    command.upgrade(Config("alembic.ini"), "head")
+    command.upgrade(Config("alembic.ini"), "20260909_22")
     inspector = inspect(engine)
     assert set(inspector.get_table_names()) - before == {
         "page_captures",

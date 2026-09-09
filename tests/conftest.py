@@ -50,3 +50,89 @@ def _truncate_application_tables(engine) -> None:  # type: ignore[no-untyped-def
     tables = ", ".join(quote(table.name) for table in Base.metadata.sorted_tables)
     with engine.begin() as connection:
         connection.exec_driver_sql(f"TRUNCATE TABLE {tables} RESTART IDENTITY CASCADE")
+
+
+@pytest.fixture
+def scrape_queue(request, tmp_path):
+    """Synthetic queue only; no source page or real service credentials."""
+    from datetime import datetime, timezone
+    from uuid import uuid4
+
+    from sqlalchemy.orm import sessionmaker
+
+    from homefinder.catalog.orm import (
+        ListingRecord,
+        ListingSnapshotRecord,
+        ParserReleaseRecord,
+        PortalParserActivationRecord,
+        SourceRecord,
+    )
+    from homefinder.scrape_queue.contracts import WorkerIdentity
+    from homefinder.scrape_queue.repository import ScrapeQueueRepository
+
+    url = (
+        os.environ["TEST_POSTGRES_URL"]
+        if request.node.get_closest_marker("postgres")
+        else f"sqlite:///{tmp_path / 'scrape.sqlite3'}"
+    )
+    engine = create_engine(url)
+    Base.metadata.create_all(engine)
+    sessions = sessionmaker(engine, expire_on_commit=False)
+    now = datetime(2026, 9, 9, tzinfo=timezone.utc)
+    snapshots = []
+    with sessions.begin() as session:
+        for source, release in (("gratka", "a" * 64), ("morizon", "b" * 64)):
+            source_id = uuid4()
+            session.add(SourceRecord(id=source_id, key=source, display_name=source))
+            session.add(
+                ParserReleaseRecord(source=source, release_hash=release, created_at=now)
+            )
+            session.flush()
+            session.add(
+                PortalParserActivationRecord(
+                    source=source, release_hash=release, activation_epoch=1
+                )
+            )
+            if source != "gratka":
+                continue
+            for index in range(3):
+                listing_id, snapshot_id = uuid4(), uuid4()
+                session.add(
+                    ListingRecord(
+                        id=listing_id,
+                        source_id=source_id,
+                        source_listing_id=str(10000001 + index),
+                        canonical_url=(
+                            "https://gratka.pl/nieruchomosci/test/ob/"
+                            f"{10000001 + index}"
+                        ),
+                        title="Synthetic example",
+                    )
+                )
+                session.flush()
+                session.add(
+                    ListingSnapshotRecord(
+                        id=snapshot_id,
+                        listing_id=listing_id,
+                        observed_at=now,
+                        price_minor=100,
+                        currency="PLN",
+                        availability="active",
+                        description="Synthetic example",
+                        content_hash=str(index) * 64,
+                    )
+                )
+                snapshots.append(snapshot_id)
+    repository = ScrapeQueueRepository(sessions)
+    workers = [
+        WorkerIdentity(
+            worker_id=f"test-{deployment}", source="gratka", deployment=deployment
+        )
+        for deployment in ("nas", "vps")
+    ]
+    for worker in workers:
+        repository.register_worker(worker, release_hashes=("a" * 64,), now=now)
+    try:
+        yield repository, snapshots, workers, sessions
+    finally:
+        engine.dispose()

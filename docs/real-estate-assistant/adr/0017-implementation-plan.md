@@ -322,6 +322,51 @@ Commit: `feat(scraping): establish concurrent pipeline boundaries`
 
 ### Slice 1 — Central coordinator and fenced scrape queue
 
+Status: repository implementation complete (2026-09-09); deployment remains gated.
+
+Evidence:
+- Added the named PostgreSQL distinct-claims test first. Its initial run skipped
+  because no test database was configured. The fake-backed unit contract then
+  failed on missing queue models before production implementation.
+- Provisioned a disposable PostgreSQL 14.24/PostGIS 3.2 test instance entirely
+  under `/tmp`, from extracted distribution packages, using a private Unix
+  socket and no TCP listener, root changes, Docker, or production credentials.
+  The named test subsequently passed against real concurrent transactions.
+- Added source/task-class enqueue, idempotency, capability registration, claims,
+  bounded lease renewal, defer/succeed/fail, expiry audit, retry limits, held
+  network recovery, and stable source-scoped status pagination.
+- Migration `20260909_23` is expand-only. It adds an empty current-release/epoch
+  pointer now because queue fencing requires it; Slice 7 still owns audited
+  activation/rollback and seeds no release in this slice.
+- Private worker API is disabled by default, binds each credential digest to one
+  source/deployment/worker, bounds request bodies, rejects arbitrary raw fields,
+  and exposes neither enqueue nor activation/recovery-release operations.
+  Production worker secret provisioning and private Tailscale routing remain
+  deployment gates. Workers receive no database credentials.
+- Test-first review regressions fixed duplicate live enqueue across epoch changes,
+  acknowledgement using a stale pre-lock timestamp, and malformed cursor types.
+- Five PostgreSQL tests cover distinct NAS/VPS claims, concurrent enqueue,
+  simultaneous acknowledgements, expiry/epoch fencing, and delayed lock handling.
+  SQLite covers deterministic state transitions and migration expansion; it is
+  not used as evidence of concurrent-claim safety.
+- Final full suite: **280 passed, zero skipped**, with PostgreSQL required.
+  PostgreSQL and SQLite Alembic upgrade/schema-drift checks pass.
+  Ruff formatting/lint, strict mypy, fixture scanner, YAML lint, and dependency
+  audit pass. All five base/shared-VPS/scraping/NAS Compose combinations validate
+  with Compose v1.29.2. Docker v2/image build remains unavailable due daemon
+  permissions; CI must still build the immutable image and verify PostGIS 17.
+- Security/diff review found no secrets, raw source captures, unsafe fixtures,
+  debug code, public-ingress changes, or report modifications. Synthetic catalog
+  values and fake credential digests exist only in tests. Original user changes
+  to the main implementation plan, glossary, ADR, and prompt remain preserved.
+- Reassessment for Slice 2: reuse the source-pinned API contracts; add worker
+  shutdown/heartbeat and queued workflow dispatch behind the disabled flag.
+  Do not enable network work until Slice 3 central pacing is installed.
+  Route allocation/accounting is intentionally unassigned in Slice 1 and belongs
+  to Slice 3; metadata-retention configuration is validated but purge remains a
+  later operations implementation. All live rollout gates remain closed.
+
+
 First failing test:
 `tests/integration/test_scrape_queue_postgres.py::test_nas_and_vps_claim_distinct_tasks`.
 

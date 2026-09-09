@@ -6,6 +6,7 @@ from sqlalchemy import (
     CheckConstraint,
     DateTime,
     ForeignKey,
+    ForeignKeyConstraint,
     Index,
     LargeBinary,
     Numeric,
@@ -617,7 +618,7 @@ class PageCaptureRecord(Base):
 
 
 class ScrapeTaskRecord(Base):
-    """Dark queue identity; no claim path is installed by this expansion."""
+    """Central production task state, accessible only through the coordinator."""
 
     __tablename__ = "scrape_tasks"
     __table_args__ = (
@@ -630,6 +631,19 @@ class ScrapeTaskRecord(Base):
             name="ck_scrape_task_class",
         ),
         CheckConstraint("activation_epoch > 0", name="ck_scrape_task_epoch"),
+        CheckConstraint(
+            "state IN ('pending', 'running', 'deferred', "
+            "'succeeded', 'failed', 'held')",
+            name="ck_scrape_task_state",
+        ),
+        CheckConstraint("attempt_count >= 0", name="ck_scrape_task_attempt_count"),
+        ForeignKeyConstraint(
+            ["source", "release_hash"],
+            ["parser_releases.source", "parser_releases.release_hash"],
+            name="fk_scrape_task_source_release",
+        ),
+        Index("ix_scrape_tasks_claim", "source", "state", "priority", "available_at"),
+        Index("ix_scrape_tasks_status", "source", "created_at", "id"),
     )
 
     id: Mapped[UUID] = mapped_column(primary_key=True)
@@ -642,3 +656,71 @@ class ScrapeTaskRecord(Base):
     )
     activation_epoch: Mapped[int]
     idempotency_key: Mapped[str] = mapped_column(String(64), unique=True)
+
+    state: Mapped[str] = mapped_column(String(20), server_default="pending")
+    priority: Mapped[int] = mapped_column(server_default="0")
+    available_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    attempt_count: Mapped[int] = mapped_column(server_default="0")
+    lease_owner: Mapped[str | None] = mapped_column(String(80))
+    lease_token: Mapped[UUID | None]
+    lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    lease_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class PortalParserActivationRecord(Base):
+    """Empty until manually activated; no activation command in the queue slice."""
+
+    __tablename__ = "portal_parser_activations"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["source", "release_hash"],
+            ["parser_releases.source", "parser_releases.release_hash"],
+        ),
+        CheckConstraint("activation_epoch > 0", name="ck_portal_activation_epoch"),
+    )
+
+    source: Mapped[str] = mapped_column(String(20), primary_key=True)
+    release_hash: Mapped[str] = mapped_column(String(64))
+    activation_epoch: Mapped[int]
+
+
+class ScraperWorkerRecord(Base):
+    __tablename__ = "scraper_workers"
+    __table_args__ = (
+        CheckConstraint("deployment IN ('nas', 'vps')", name="ck_worker_deployment"),
+        CheckConstraint(
+            "source IN ('gratka', 'morizon', 'otodom', 'olx')",
+            name="ck_worker_source",
+        ),
+    )
+
+    worker_id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    source: Mapped[str] = mapped_column(String(20))
+    deployment: Mapped[str] = mapped_column(String(3))
+    heartbeat_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    release_hashes_json: Mapped[str] = mapped_column(String(4500))
+    healthy: Mapped[bool]
+
+
+class ScrapeAttemptRecord(Base):
+    """Bounded enum diagnostics only; no text, credentials, or response bodies."""
+
+    __tablename__ = "scrape_attempts"
+
+    task_id: Mapped[UUID] = mapped_column(
+        ForeignKey("scrape_tasks.id"), primary_key=True
+    )
+    attempt_number: Mapped[int] = mapped_column(primary_key=True)
+    lease_token: Mapped[UUID] = mapped_column(unique=True)
+    worker_id: Mapped[str] = mapped_column(ForeignKey("scraper_workers.worker_id"))
+    release_hash: Mapped[str] = mapped_column(String(64))
+    activation_epoch: Mapped[int]
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    outcome: Mapped[str | None] = mapped_column(String(20))
+    code: Mapped[str | None] = mapped_column(String(40))
+    route_class: Mapped[str] = mapped_column(String(12), server_default="unassigned")
+    route_id: Mapped[UUID | None]
+    response_bytes: Mapped[int] = mapped_column(server_default="0")
