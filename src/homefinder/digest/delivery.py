@@ -419,7 +419,10 @@ def append_private_feedback_links(
         if marker not in updated:
             unmatched.append((slot, url))
             continue
-        link = f' · <a rel="noreferrer" href="{escape(url, quote=True)}">feedback</a>'
+        link = (
+            f'<a rel="noreferrer" href="{escape(url, quote=True)}" '
+            'style="color:#334155;margin-left:16px">Oceń ofertę</a>'
+        )
         updated = updated.replace(marker, link, 1)
     if not unmatched:
         return updated

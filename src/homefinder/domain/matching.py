@@ -68,6 +68,7 @@ class RuleResult:
     actual: str
     threshold: str
     distance: str
+    deviation_ratio: Decimal | None = None
 
     @property
     def explanation(self) -> str:
@@ -242,6 +243,9 @@ def _admin_fee_rule(facts: PropertyFacts, profile: BuyerProfile) -> RuleResult:
             if difference >= 0
             else f"over by {_pln(-difference)}"
         ),
+        deviation_ratio=(
+            _deviation_ratio(-difference, reference) if difference < 0 else None
+        ),
     )
 
 
@@ -303,7 +307,16 @@ def _money_max_rule(name: str, actual: int | None, maximum: int) -> RuleResult:
         if difference >= 0
         else f"over by {_pln(-difference)}"
     )
-    return RuleResult(name, state, _pln(actual), threshold, distance)
+    return RuleResult(
+        name,
+        state,
+        _pln(actual),
+        threshold,
+        distance,
+        deviation_ratio=(
+            _deviation_ratio(-difference, maximum) if difference < 0 else None
+        ),
+    )
 
 
 def _decimal_min_rule(
@@ -323,6 +336,9 @@ def _decimal_min_rule(
         f"{actual} {unit}",
         threshold,
         f"{direction} by {abs(difference)} {unit}",
+        deviation_ratio=(
+            _deviation_ratio(-difference, minimum) if difference < 0 else None
+        ),
     )
 
 
@@ -340,7 +356,14 @@ def _integer_min_rule(
     amount = abs(difference)
     suffix = "" if amount == 1 else "s"
     return RuleResult(
-        name, state, str(actual), threshold, f"{direction} by {amount} {unit}{suffix}"
+        name,
+        state,
+        str(actual),
+        threshold,
+        f"{direction} by {amount} {unit}{suffix}",
+        deviation_ratio=(
+            _deviation_ratio(-difference, minimum) if difference < 0 else None
+        ),
     )
 
 
@@ -358,8 +381,21 @@ def _integer_max_rule(
     amount = abs(difference)
     suffix = "" if amount == 1 else "s"
     return RuleResult(
-        name, state, str(actual), threshold, f"{direction} by {amount} {unit}{suffix}"
+        name,
+        state,
+        str(actual),
+        threshold,
+        f"{direction} by {amount} {unit}{suffix}",
+        deviation_ratio=(
+            _deviation_ratio(-difference, maximum) if difference < 0 else None
+        ),
     )
+
+
+def _deviation_ratio(deviation: int | Decimal, limit: int | Decimal) -> Decimal | None:
+    if limit <= 0:
+        return None
+    return Decimal(deviation) / Decimal(limit)
 
 
 def _floor_rule(facts: PropertyFacts) -> RuleResult:

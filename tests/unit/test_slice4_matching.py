@@ -302,6 +302,18 @@ def test_unknown_hard_rule_exposes_unknown_actual_and_threshold() -> None:
     assert "distance unknown" in rule.explanation
 
 
+def test_numeric_failures_expose_relative_deviation_for_report_severity() -> None:
+    rules = {
+        rule.name: rule
+        for rule in evaluate(
+            _facts(area_sqm=Decimal("38"), commute_minutes=50), BuyerProfile()
+        ).eligibility
+    }
+
+    assert rules["area"].deviation_ratio == Decimal("0.05")
+    assert rules["commute"].deviation_ratio == Decimal("5") / Decimal("45")
+
+
 def test_exploration_names_every_failed_and_unknown_deviation() -> None:
     result = evaluate(
         _facts(

@@ -44,9 +44,9 @@ from homefinder.workflow.models import (
 from homefinder.workflow.repository import WorkflowRepository
 
 NORMALIZER_VERSION = "catalog-page-v2"
-MATCHER_VERSION = "rules-v2"
+MATCHER_VERSION = "rules-v3"
 SELECTION_VERSION = "slate-v2"
-RENDER_VERSION = "digest-v3"
+RENDER_VERSION = "digest-v4"
 REPORT_NAMESPACE = UUID("7e8efea1-64da-4ba1-9a47-f70e23775994")
 
 
@@ -692,6 +692,11 @@ def _serialize_explanation(value: MatchExplanation) -> str:
                     "actual": rule.actual,
                     "threshold": rule.threshold,
                     "distance": rule.distance,
+                    "deviation_ratio": (
+                        str(rule.deviation_ratio)
+                        if rule.deviation_ratio is not None
+                        else None
+                    ),
                 }
                 for rule in value.eligibility
             ],
@@ -702,6 +707,11 @@ def _serialize_explanation(value: MatchExplanation) -> str:
                     "actual": rule.actual,
                     "threshold": rule.threshold,
                     "distance": rule.distance,
+                    "deviation_ratio": (
+                        str(rule.deviation_ratio)
+                        if rule.deviation_ratio is not None
+                        else None
+                    ),
                 }
                 for rule in value.preferences
             ],

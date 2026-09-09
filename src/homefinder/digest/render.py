@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass
 from datetime import datetime
+from decimal import Decimal
 from html import escape
 
 from homefinder.domain.matching import MatchExplanation, RuleResult, TriState
@@ -24,6 +25,47 @@ class Digest:
     exploration: tuple[DigestItem, ...]
 
 
+@dataclass(frozen=True, slots=True)
+class _PresentationStatus:
+    key: str
+    label: str
+    foreground: str
+    background: str
+
+
+_MET = _PresentationStatus("met", "Spełnione", "#166534", "#dcfce7")
+_SLIGHT = _PresentationStatus(
+    "slight", "Nieznacznie przekroczone", "#854d0e", "#fef9c3"
+)
+_UNKNOWN = _PresentationStatus("unknown", "Brak danych", "#475569", "#f1f5f9")
+_STRONG = _PresentationStatus("strong", "Mocno przekroczone", "#991b1b", "#fee2e2")
+_SLIGHT_DEVIATION_LIMIT = Decimal("0.10")
+
+_RULE_LABELS = {
+    "transaction": "Typ transakcji",
+    "primary_market_evidence": "Rynek pierwotny",
+    "vacant_possession": "Wolne przy zakupie",
+    "separate_ownership": "Odrębna własność",
+    "legal_risk": "Ryzyko prawne",
+    "locality": "Lokalizacja",
+    "price": "Cena",
+    "cash": "Wymagana gotówka",
+    "installment": "Miesięczna rata",
+    "area": "Powierzchnia",
+    "area_sqm": "Powierzchnia",
+    "rooms": "Liczba pokoi",
+    "usable_layout": "Funkcjonalny układ",
+    "floor": "Piętro",
+    "elevator": "Winda",
+    "parking": "Parking",
+    "building_scale": "Wielkość budynku",
+    "commute": "Dojazd",
+    "commute_minutes": "Dojazd",
+    "monthly_admin_fee": "Czynsz administracyjny",
+    "heating": "Ogrzewanie",
+}
+
+
 def render_digest(
     digest: Digest, *, token_urls: dict[str, str] | None = None
 ) -> tuple[str, str]:
@@ -31,90 +73,185 @@ def render_digest(
     sections: list[str] = []
     plain_sections: list[str] = []
     for heading, section_key, items in (
-        ("Compliant homes", "compliant", digest.compliant),
-        ("Exploration homes", "exploration", digest.exploration),
+        ("Oferty spełniające kryteria", "compliant", digest.compliant),
+        ("Oferty do rozważenia", "exploration", digest.exploration),
     ):
         cards: list[str] = []
         lines = [heading]
         for position, item in enumerate(items, start=1):
-            facts = item.candidate.facts
-            explanation = item.candidate.explanation
-            title = escape(facts.title or facts.id)
-            url = escape(item.listing_url, quote=True)
-            feedback = token_urls.get(facts.id)
-            feedback_link = (
-                f' · <a href="{escape(feedback, quote=True)}" '
-                'rel="noreferrer">feedback</a>'
-                if feedback
-                else (
-                    f'<span data-homez-feedback-slot="{section_key}-{position}"></span>'
-                )
+            card, plain_card = _render_item(
+                item,
+                section_key=section_key,
+                position=position,
+                feedback_url=token_urls.get(item.candidate.facts.id),
             )
-            criteria_html, criteria_plain = _render_criteria(explanation)
-            risk = ""
-            risk_plain = ""
-            if item.primary_market is not None:
-                dossier = item.primary_market
-                risk = f"<p>Primary-market risk: {escape(dossier.summary)}</p>"
-                risk_plain = f" — primary-market risk: {dossier.summary}"
-            location = escape(facts.locality or "Location unknown")
-            cards.append(
-                f"<article><h3>{title}</h3><p>{location} · score "
-                f'{explanation.score}</p><a href="{url}" '
-                f'rel="noreferrer noopener">open listing</a>{feedback_link}'
-                f"{criteria_html}{risk}</article>"
-            )
-            lines.append(
-                f"- {facts.title or facts.id} — {facts.locality or 'Location unknown'} "
-                f"— {item.listing_url}{risk_plain}\n{criteria_plain}"
-            )
+            cards.append(card)
+            lines.append(plain_card)
+        empty = '<p style="color:#64748b">Brak ofert.</p>'
         sections.append(
-            f"<section><h2>{heading}</h2>{''.join(cards) or '<p>None</p>'}</section>"
+            f'<section><h2 style="color:#0f172a;font-size:20px">{heading}</h2>'
+            f"{''.join(cards) or empty}</section>"
         )
         plain_sections.extend(lines)
     html = (
-        '<!doctype html><meta name="referrer" content="no-referrer"><main>'
-        f"<h1>Homefinder daily digest</h1>{''.join(sections)}</main>"
+        '<!doctype html><meta name="referrer" content="no-referrer">'
+        '<main style="background:#f8fafc;color:#0f172a;font-family:Arial,sans-serif;'
+        'margin:0 auto;max-width:760px;padding:24px">'
+        '<h1 style="font-size:26px;margin:0 0 24px">Homez — dzienny raport ofert</h1>'
+        f"{''.join(sections)}</main>"
     )
-    return html, "Homefinder daily digest\n\n" + "\n".join(plain_sections)
+    return html, "Homez — dzienny raport ofert\n\n" + "\n\n".join(plain_sections)
+
+
+def _render_item(
+    item: DigestItem,
+    *,
+    section_key: str,
+    position: int,
+    feedback_url: str | None,
+) -> tuple[str, str]:
+    facts = item.candidate.facts
+    explanation = item.candidate.explanation
+    title = escape(facts.title or facts.id)
+    location_text = facts.locality or "Brak danych o lokalizacji"
+    location = escape(location_text)
+    url = escape(item.listing_url, quote=True)
+    score = _score_text(explanation.score)
+    score_width = max(Decimal("0"), min(Decimal("100"), explanation.score))
+    feedback = (
+        f'<a href="{escape(feedback_url, quote=True)}" rel="noreferrer" '
+        f'style="color:#334155;margin-left:16px">Oceń ofertę</a>'
+        if feedback_url
+        else f'<span data-homez-feedback-slot="{section_key}-{position}"></span>'
+    )
+    criteria_html, criteria_plain = _render_criteria(explanation)
+    risk = ""
+    risk_plain = ""
+    if item.primary_market is not None:
+        summary = _display_text(item.primary_market.summary)
+        risk = (
+            '<p style="background:#fff7ed;padding:10px">'
+            f"Ryzyko rynku pierwotnego: {escape(summary)}</p>"
+        )
+        risk_plain = f"\nRyzyko rynku pierwotnego: {summary}"
+    counts = _status_counts(explanation)
+    badges = "".join(
+        _summary_badge(status, counts[status.key])
+        for status in (_MET, _SLIGHT, _UNKNOWN, _STRONG)
+        if counts[status.key]
+    )
+    html = (
+        '<article class="listing-card" style="background:#ffffff;border:1px solid '
+        '#dbe3ee;border-radius:12px;margin-bottom:24px;padding:20px">'
+        '<table role="presentation" style="border-collapse:collapse;width:100%"><tr>'
+        f'<td><h3 style="font-size:19px;margin:0 0 6px">{title}</h3>'
+        f'<p style="color:#475569;margin:0">{location}</p></td>'
+        f'<td style="text-align:right;white-space:nowrap"><strong>Dopasowanie: '
+        f"{score}/100</strong></td></tr></table>"
+        '<div style="background:#e2e8f0;border-radius:999px;height:7px;'
+        "margin:14px 0 12px;"
+        'overflow:hidden"><div style="background:#2563eb;height:7px;width:'
+        f'{score_width}%"></div></div><div style="margin-bottom:16px">{badges}</div>'
+        f"{criteria_html}{risk}"
+        f'<p style="margin:18px 0 0"><a href="{url}" rel="noreferrer noopener" '
+        'style="background:#2563eb;border-radius:6px;color:#ffffff;display:inline-block;'
+        f'padding:10px 14px;text-decoration:none">Zobacz ogłoszenie</a>{feedback}</p>'
+        "</article>"
+    )
+    plain = (
+        "------------------------------------------------------------\n"
+        f"{facts.title or facts.id} — {location_text}\n"
+        f"Dopasowanie: {score}/100\n{item.listing_url}\n{criteria_plain}{risk_plain}"
+    )
+    return html, plain
 
 
 def _render_criteria(explanation: MatchExplanation) -> tuple[str, str]:
-    groups = (
-        ("Criteria met", explanation.eligibility, TriState.PASS),
-        ("Criteria not met", explanation.eligibility, TriState.FAIL),
-        (
-            "Unknown / needs verification",
-            explanation.eligibility,
-            TriState.UNKNOWN,
-        ),
-        ("Preferences met", explanation.preferences, TriState.PASS),
-        ("Preferences not met", explanation.preferences, TriState.FAIL),
-        ("Preferences unknown", explanation.preferences, TriState.UNKNOWN),
-    )
-    html_groups: list[str] = []
-    plain_groups: list[str] = []
-    for heading, source, state in groups:
-        rules = tuple(rule for rule in source if rule.state is state)
-        html_rules = "".join(f"<li>{escape(_rule_text(rule))}</li>" for rule in rules)
-        html_groups.append(
-            f"<section><h4>{heading}</h4>"
-            f"{f'<ul>{html_rules}</ul>' if rules else '<p>None</p>'}</section>"
+    rules = tuple(explanation.eligibility) + tuple(explanation.preferences)
+    ordered = sorted(rules, key=lambda rule: _status_order(_status_for(rule)))
+    html_rows: list[str] = []
+    plain_rows: list[str] = []
+    for rule in ordered:
+        status = _status_for(rule)
+        label = _rule_label(rule.name)
+        actual = _display_text(rule.actual)
+        threshold = _display_text(rule.threshold)
+        distance = _display_text(rule.distance)
+        html_rows.append(
+            f'<tr data-status="{status.key}" style="border-top:1px solid #e2e8f0">'
+            f'<td style="padding:10px 8px">{escape(label)}</td>'
+            '<td style="padding:10px 8px"><span style="border-radius:999px;'
+            "display:inline-block;"
+            f"font-size:12px;font-weight:bold;padding:4px 8px;"
+            f"color:{status.foreground};"
+            f'background:{status.background}">{status.label}</span></td>'
+            f'<td style="padding:10px 8px">{escape(actual)}<br>'
+            f'<small style="color:#64748b">{escape(distance)}</small></td>'
+            f'<td style="padding:10px 8px">{escape(threshold)}</td></tr>'
         )
-        plain_groups.append(
-            f"  {heading}: "
-            + ("; ".join(_rule_text(rule) for rule in rules) if rules else "None")
+        plain_rows.append(
+            f"  [{status.label}] {label}: {actual}; wymaganie: {threshold}; {distance}"
         )
-    return f'<div class="criteria">{"".join(html_groups)}</div>', "\n".join(
-        plain_groups
+    if not html_rows:
+        return "", "Brak kryteriów."
+    html = (
+        '<div style="overflow-x:auto"><table style="border-collapse:collapse;'
+        "font-size:14px;"
+        'width:100%"><thead><tr style="background:#f8fafc;text-align:left">'
+        '<th style="padding:9px 8px">Kryterium</th>'
+        '<th style="padding:9px 8px">Status</th>'
+        '<th style="padding:9px 8px">Wartość</th>'
+        '<th style="padding:9px 8px">Wymaganie</th>'
+        f"</tr></thead><tbody>{''.join(html_rows)}</tbody></table></div>"
     )
+    return html, "\n".join(plain_rows)
 
 
-def _rule_text(rule: RuleResult) -> str:
+def _status_for(rule: RuleResult) -> _PresentationStatus:
+    if rule.state is TriState.PASS:
+        return _MET
+    if rule.state is TriState.UNKNOWN:
+        return _UNKNOWN
+    if (
+        rule.deviation_ratio is not None
+        and rule.deviation_ratio <= _SLIGHT_DEVIATION_LIMIT
+    ):
+        return _SLIGHT
+    return _STRONG
+
+
+def _status_counts(explanation: MatchExplanation) -> dict[str, int]:
+    counts = {status.key: 0 for status in (_MET, _SLIGHT, _UNKNOWN, _STRONG)}
+    for rule in (*explanation.eligibility, *explanation.preferences):
+        counts[_status_for(rule).key] += 1
+    return counts
+
+
+def _summary_badge(status: _PresentationStatus, count: int) -> str:
     return (
-        f"{rule.name}: actual {rule.actual}; threshold {rule.threshold}; "
-        f"{rule.distance}"
+        '<span style="border-radius:999px;display:inline-block;font-size:12px;'
+        f"font-weight:bold;margin:0 6px 6px 0;padding:5px 9px;"
+        f"color:{status.foreground};"
+        f'background:{status.background}">{status.label}: {count}</span>'
     )
+
+
+def _status_order(status: _PresentationStatus) -> int:
+    return {"strong": 0, "slight": 1, "unknown": 2, "met": 3}[status.key]
+
+
+def _rule_label(name: str) -> str:
+    return _RULE_LABELS.get(name, _display_text(name).capitalize())
+
+
+def _display_text(value: str) -> str:
+    if value.casefold() == "unknown":
+        return "Brak danych"
+    return value.replace("_", " ")
+
+
+def _score_text(score: Decimal) -> str:
+    return format(score.normalize(), "f")
 
 
 def render_share_text(digest: Digest) -> str:

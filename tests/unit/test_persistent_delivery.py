@@ -206,8 +206,9 @@ def test_delivery_adds_private_links_only_to_html(tmp_path: Path) -> None:
 
     assert worker.run_once(now=NOW)
     assert (
-        'open listing</a> · <a rel="noreferrer" '
-        'href="https://feedback.example/feedback/r/l#secret">feedback</a>'
+        '<a rel="noreferrer" '
+        'href="https://feedback.example/feedback/r/l#secret" '
+        'style="color:#334155;margin-left:16px">Oceń ofertę</a>'
         in transport.html_bodies[0]
     )
     assert "Private feedback" not in transport.html_bodies[0]
