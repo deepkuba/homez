@@ -126,7 +126,13 @@ so the secondary cannot be used to bypass `403`, `429`, or `Retry-After`.
 Create separate durable rate-limit state owned by the container user:
 
 ```bash
-sudo install -d -m 0700 -o 10001 -g 10001 \
+sudo mkdir -p \
+  /var/lib/homez-scrapers/olx \
+  /var/lib/homez-scrapers/otodom \
+  /var/lib/homez-scrapers/morizon \
+  /var/lib/homez-scrapers/gratka
+sudo chown -R 10001:10001 /var/lib/homez-scrapers
+sudo chmod 0700 /var/lib/homez-scrapers \
   /var/lib/homez-scrapers/olx \
   /var/lib/homez-scrapers/otodom \
   /var/lib/homez-scrapers/morizon \
