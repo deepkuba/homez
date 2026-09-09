@@ -58,7 +58,9 @@ class _TestInbox(MailTransport):
         return MailAcknowledgement("test-inbox-message", NOW)
 
 
-NOW = datetime(2026, 9, 1, 8, tzinfo=timezone.utc)
+# The web layer intentionally uses the real UTC clock for token expiry. Keep this
+# end-to-end test on the same clock so it does not start failing as its fixture ages.
+NOW = datetime.now(timezone.utc)
 
 
 @pytest.mark.postgres
