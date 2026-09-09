@@ -12,6 +12,14 @@ password, token, secret, authorization value, API key, or database URL are
 redacted; raw email, OAuth responses, listing pages, and backup keys must not be
 logged.
 
+The authenticated scraper-error dashboard is available at
+`/feedback/scraper-errors`. It opens with the 50 newest persisted `poll` and
+`normalize` attempt failures, loads older history through a stable cursor, and
+uses a same-origin server-sent event stream for newly persisted errors. The
+dashboard deliberately exposes only bounded error codes/details and resolved
+portal names; job payloads, listing URLs, credentials, and raw container logs
+remain private.
+
 ## Encrypted PostgreSQL backups
 
 Generate a 32-byte key once and store it in a secret manager separate from the

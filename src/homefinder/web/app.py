@@ -15,7 +15,13 @@ from uuid import UUID
 from zoneinfo import ZoneInfo
 
 from fastapi import FastAPI, Header, HTTPException, Request
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
+from fastapi.responses import (
+    HTMLResponse,
+    JSONResponse,
+    RedirectResponse,
+    Response,
+    StreamingResponse,
+)
 from pydantic import BaseModel
 from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import Session, sessionmaker
@@ -40,6 +46,12 @@ from homefinder.enrichment.environment import ManualCorrectionStore
 from homefinder.operations.health import HealthRegistry, HealthState
 from homefinder.operations.logging import setup_logging
 from homefinder.sources.gmail import TokenError, read_secret_text
+from homefinder.web.scraper_errors import (
+    InvalidScraperErrorCursor,
+    load_scraper_errors,
+    render_scraper_error_dashboard,
+    stream_scraper_errors,
+)
 from homefinder.workflow.models import ManualReviewRequired
 from homefinder.workflow.service import WorkflowService
 
@@ -213,6 +225,64 @@ def create_app(
             _render_queue_status(
                 application.state.sessions, now=datetime.now(timezone.utc)
             )
+        )
+
+    @application.get("/feedback/scraper-errors", response_class=HTMLResponse)
+    def scraper_errors(
+        authorization: str | None = Header(default=None),
+    ) -> HTMLResponse:
+        _require_offer_browser_admin(application.state.settings, authorization)
+        nonce = secrets.token_urlsafe(18)
+        response = HTMLResponse(
+            render_scraper_error_dashboard(
+                application.state.sessions,
+                nonce=nonce,
+                now=datetime.now(timezone.utc),
+            )
+        )
+        response.headers["Content-Security-Policy"] = (
+            "default-src 'none'; style-src 'unsafe-inline'; "
+            f"script-src 'nonce-{nonce}'; connect-src 'self'; "
+            "frame-ancestors 'none'; base-uri 'none'"
+        )
+        return response
+
+    @application.get("/feedback/scraper-errors/history")
+    def scraper_error_history(
+        before: str,
+        authorization: str | None = Header(default=None),
+    ) -> JSONResponse:
+        _require_offer_browser_admin(application.state.settings, authorization)
+        try:
+            page = load_scraper_errors(application.state.sessions, before=before)
+        except InvalidScraperErrorCursor as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+        return JSONResponse(
+            {
+                "items": [item.as_dict() for item in page.items],
+                "next_cursor": page.next_cursor,
+            }
+        )
+
+    @application.get("/feedback/scraper-errors/stream")
+    def scraper_error_event_stream(
+        after: str,
+        authorization: str | None = Header(default=None),
+        last_event_id: str | None = Header(default=None, alias="Last-Event-ID"),
+    ) -> StreamingResponse:
+        _require_offer_browser_admin(application.state.settings, authorization)
+        cursor = last_event_id or after
+        try:
+            load_scraper_errors(application.state.sessions, after=cursor, limit=1)
+        except InvalidScraperErrorCursor as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+        return StreamingResponse(
+            stream_scraper_errors(application.state.sessions, after=cursor),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "X-Accel-Buffering": "no",
+            },
         )
 
     @application.get("/feedback/settings", response_class=HTMLResponse)
@@ -937,6 +1007,7 @@ def _render_offer_browser(
     )
     queue_link = (
         "<p><a href='/feedback/queue'>Status kolejki</a> · "
+        "<a href='/feedback/scraper-errors'>Błędy scraperów</a> · "
         "<a href='/feedback/settings'>Ustawienia kryteriów</a></p>"
     )
     return (
@@ -1109,7 +1180,8 @@ def _render_queue_status(sessions: sessionmaker[Session], *, now: datetime) -> s
         "margin:1rem 0 2rem}th,td{text-align:left;border-bottom:1px solid #ddd;"
         "padding:.55rem}th{white-space:nowrap}.meta{color:#555}a{color:inherit}</style>"
         "<body><main><p><a href='/feedback/offers'>← Oferty</a> · "
-        "<a href='/feedback/settings'>Ustawienia kryteriów</a></p>"
+        "<a href='/feedback/settings'>Ustawienia kryteriów</a> · "
+        "<a href='/feedback/scraper-errors'>Błędy scraperów</a></p>"
         "<h1>Kolejka Homez</h1>"
         f"<p class=meta>Stan na {_queue_time(now)} · "
         "automatyczne odświeżanie co 15 s</p>"
