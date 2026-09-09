@@ -172,6 +172,53 @@ def test_vps_scraping_override_mounts_token_only_into_workflow_worker() -> None:
     assert set(compose["secrets"]) == {"scraper_token"}
 
 
+def test_local_vps_scrapers_are_private_redundant_services() -> None:
+    raw = Path("infra/compose.local-scrapers-vps.yaml").read_text(encoding="utf-8")
+    compose = yaml.safe_load(raw)
+    services = compose["services"]
+    scraper_names = {
+        "scraper-vps-olx",
+        "scraper-vps-otodom",
+        "scraper-vps-morizon",
+        "scraper-vps-gratka",
+    }
+
+    assert set(services) == scraper_names | {"workflow-worker"}
+    assert set(compose["secrets"]) == {"scraper_token"}
+    assert compose["networks"]["scraper-control"]["internal"] is True
+    assert compose["networks"]["scraper-egress"]["driver"] == "bridge"
+
+    worker = services["workflow-worker"]
+    assert set(worker["networks"]) == {"backend", "egress", "scraper-control"}
+    assert set(worker["depends_on"]) >= scraper_names
+    for name in scraper_names:
+        source = name.removeprefix("scraper-vps-")
+        scraper = services[name]
+        assert scraper["read_only"] is True
+        assert scraper["user"] == "10001:10001"
+        assert scraper["cap_drop"] == ["ALL"]
+        assert scraper["security_opt"] == ["no-new-privileges:true"]
+        assert scraper["secrets"] == ["scraper_token"]
+        assert "ports" not in scraper
+        assert set(scraper["networks"]) == {"scraper-control", "scraper-egress"}
+        assert scraper["command"][0:4] == [
+            "homefinder",
+            "scraper-server",
+            "--source",
+            source,
+        ]
+        assert scraper["volumes"] == [
+            {
+                "type": "bind",
+                "source": "${HOMEZ_VPS_SCRAPER_STATE_DIR:?set VPS scraper state dir}/"
+                + source,
+                "target": "/var/lib/homefinder-scraper",
+            }
+        ]
+        endpoint_name = f"HOMEFINDER_SCRAPER_{source.upper()}_FALLBACK_ENDPOINT"
+        assert worker["environment"][endpoint_name] == f"http://{name}:8000"
+
+
 def test_ci_checks_default_shared_model_omits_profiled_ingress() -> None:
     workflow = Path(".github/workflows/ci.yml").read_text(encoding="utf-8")
 

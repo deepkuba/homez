@@ -14,6 +14,7 @@ from homefinder.sources.portal_pages import (
 from homefinder.sources.remote_scraper import (
     RemotePortalScraper,
     RemoteScrapeDeferred,
+    RemoteScraperUnavailable,
     _post_scrape,
 )
 
@@ -344,6 +345,92 @@ def test_remote_scraper_rejects_public_cleartext_endpoint(tmp_path) -> None:
             endpoint="https://nas.example.com:18101",
             token_file=token_file,
         )
+
+
+def test_remote_scraper_accepts_only_its_source_pinned_vps_service(tmp_path) -> None:
+    token_file = tmp_path / "scraper-token"
+
+    scraper = RemotePortalScraper(
+        "olx",
+        endpoint="http://scraper-vps-olx:8000",
+        token_file=token_file,
+    )
+
+    assert scraper.endpoint == "http://scraper-vps-olx:8000/scrape"
+    with pytest.raises(ValueError, match="private"):
+        RemotePortalScraper(
+            "olx",
+            endpoint="http://scraper-vps-otodom:8000",
+            token_file=token_file,
+        )
+
+
+def test_remote_scraper_fails_over_only_when_primary_is_unavailable(tmp_path) -> None:
+    token_file = tmp_path / "scraper-token"
+    token_file.write_text("test-shared-secret", encoding="ascii")
+    token_file.chmod(0o600)
+    requested: list[str] = []
+
+    def request(
+        endpoint: str, url: str, token: str, timeout: float, limit: int
+    ) -> bytes:
+        requested.append(endpoint)
+        if endpoint.startswith("http://100.100.20.30"):
+            raise RemoteScraperUnavailable("primary unavailable")
+        return json.dumps(
+            {
+                "source_key": "olx",
+                "source_listing_id": "IDABC123",
+                "canonical_url": PORTALS[0][1],
+                "title": "Jasne mieszkanie",
+                "price_minor": 900_000_00,
+                "currency": "PLN",
+                "area_sqm": "50.5",
+                "rooms": 2,
+                "location": "Krakow",
+                "description": "Opis",
+                "availability": "active",
+            }
+        ).encode()
+
+    scraper = RemotePortalScraper(
+        "olx",
+        endpoint="http://100.100.20.30:18101",
+        fallback_endpoint="http://scraper-vps-olx:8000",
+        token_file=token_file,
+        requester=request,
+    )
+
+    assert scraper.scrape(PORTALS[0][1]).source_key == "olx"
+    assert requested == [
+        "http://100.100.20.30:18101/scrape",
+        "http://scraper-vps-olx:8000/scrape",
+    ]
+
+
+def test_remote_scraper_does_not_fail_over_on_portal_cooldown(tmp_path) -> None:
+    token_file = tmp_path / "scraper-token"
+    token_file.write_text("test-shared-secret", encoding="ascii")
+    token_file.chmod(0o600)
+    requested: list[str] = []
+
+    def request(
+        endpoint: str, url: str, token: str, timeout: float, limit: int
+    ) -> bytes:
+        requested.append(endpoint)
+        raise RemoteScrapeDeferred(3_600)
+
+    scraper = RemotePortalScraper(
+        "olx",
+        endpoint="http://100.100.20.30:18101",
+        fallback_endpoint="http://scraper-vps-olx:8000",
+        token_file=token_file,
+        requester=request,
+    )
+
+    with pytest.raises(RemoteScrapeDeferred):
+        scraper.scrape(PORTALS[0][1])
+    assert requested == ["http://100.100.20.30:18101/scrape"]
 
 
 def test_remote_scraper_propagates_nas_retry_after(monkeypatch) -> None:

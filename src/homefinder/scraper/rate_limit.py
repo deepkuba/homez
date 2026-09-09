@@ -1,4 +1,4 @@
-"""Persistent per-process pacing and provider cooldowns for NAS scrapers."""
+"""Persistent per-process pacing and provider cooldowns for remote scrapers."""
 
 from __future__ import annotations
 

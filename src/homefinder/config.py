@@ -50,9 +50,13 @@ class Settings(BaseSettings):
     backup_key_file: Path | None = None
     scraper_token_file: Path | None = None
     scraper_olx_endpoint: str | None = None
+    scraper_olx_fallback_endpoint: str | None = None
     scraper_otodom_endpoint: str | None = None
+    scraper_otodom_fallback_endpoint: str | None = None
     scraper_morizon_endpoint: str | None = None
+    scraper_morizon_fallback_endpoint: str | None = None
     scraper_gratka_endpoint: str | None = None
+    scraper_gratka_fallback_endpoint: str | None = None
 
     @model_validator(mode="after")
     def validate_database(self) -> Settings:

@@ -400,6 +400,42 @@ def test_runtime_builds_only_explicitly_enabled_remote_scraper(tmp_path: Path) -
     assert set(_remote_scrapers(settings)) == {"olx"}
 
 
+def test_runtime_configures_vps_scraper_as_secondary(tmp_path: Path) -> None:
+    policy_file = tmp_path / "policy.json"
+    policy_file.write_text(
+        json.dumps(
+            {
+                "sources": {
+                    source: {
+                        "enabled": True,
+                        "allowed_senders": ["alerts@example.com"],
+                        "allowed_hosts": [f"www.{source}.pl"],
+                        "page_fetch_enabled": source == "olx",
+                    }
+                    for source in ("olx", "otodom", "morizon", "gratka")
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    token_file = tmp_path / "scraper-token"
+    token_file.write_text("test-secret", encoding="ascii")
+    token_file.chmod(0o600)
+    settings = Settings(
+        gmail_source_policy_file=policy_file,
+        scraper_token_file=token_file,
+        scraper_olx_endpoint="http://100.100.20.30:18101",
+        scraper_olx_fallback_endpoint="http://scraper-vps-olx:8000",
+        _env_file=None,
+    )
+
+    scraper = _remote_scrapers(settings)["olx"]
+
+    assert scraper.__self__.fallback_endpoint == (  # type: ignore[attr-defined]
+        "http://scraper-vps-olx:8000/scrape"
+    )
+
+
 @pytest.mark.parametrize(
     ("parser_type", "tracking_host", "destination"),
     [

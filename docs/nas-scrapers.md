@@ -116,8 +116,48 @@ and restart only `workflow-worker`. Existing catalog snapshots are normalized
 again under `catalog-page-v2`; successful NAS results replace only facts present
 on the page, while missing optional facts fall back to the email alert.
 
+## Add redundant scraper processes on the VPS
+
+The NAS remains the primary path. Four optional source-pinned VPS processes can
+serve as secondaries when the matching NAS service is unreachable or returns a
+server-side failure. Portal cooldowns and client errors do not trigger failover,
+so the secondary cannot be used to bypass `403`, `429`, or `Retry-After`.
+
+Create separate durable rate-limit state owned by the container user:
+
+```bash
+sudo install -d -m 0700 -o 10001 -g 10001 \
+  /var/lib/homez-scrapers/olx \
+  /var/lib/homez-scrapers/otodom \
+  /var/lib/homez-scrapers/morizon \
+  /var/lib/homez-scrapers/gratka
+```
+
+Set `HOMEZ_VPS_SCRAPER_STATE_DIR=/var/lib/homez-scrapers` and add the local
+overlay after the existing VPS scraping overlay:
+
+```bash
+compose_homez() {
+  sudo docker compose --project-name homez \
+    --env-file .env \
+    -f infra/compose.yaml \
+    -f infra/compose.shared-vps.yaml \
+    -f infra/compose.scraping-vps.yaml \
+    -f infra/compose.local-scrapers-vps.yaml "$@"
+}
+```
+
+The local services publish no host ports. They receive only the scraper token,
+use a private control network shared with the workflow worker, and use a
+separate egress bridge for portal requests. Validate and start them with the
+same immutable application image, then confirm all four healthchecks before
+restarting the workflow worker.
+
 ## Rollback
 
-Set `page_fetch_enabled` to `false` for every source and restart the VPS workflow
-worker. Then stop the NAS project. Email ingestion and existing catalog data
+To remove only VPS redundancy, remove `compose.local-scrapers-vps.yaml` from the
+VPS Compose command and run `up --detach --remove-orphans --wait`; the NAS
+primary remains active. To disable page scraping entirely, set
+`page_fetch_enabled` to `false` for every source and restart the workflow worker,
+then stop both scraper deployments. Email ingestion and existing catalog data
 remain available; no schema rollback is required.

@@ -1,0 +1,164 @@
+x-vps-scraper: &vps-scraper
+  image: >-
+    ${HOMEZ_IMAGE:?set image}:${HOMEZ_IMAGE_TAG:?set tag}
+  user: "10001:10001"
+  init: true
+  read_only: true
+  restart: unless-stopped
+  tmpfs:
+    - /tmp:size=16m,mode=1777
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+  pids_limit: 128
+  mem_limit: 256m
+  cpus: 0.5
+  secrets:
+    - scraper_token
+  healthcheck:
+    test:
+      - CMD
+      - python
+      - -c
+      - >-
+        import urllib.request;
+        urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=2).read()
+    interval: 30s
+    timeout: 5s
+    start_period: 10s
+    retries: 3
+  networks:
+    - scraper-control
+    - scraper-egress
+
+services:
+  workflow-worker:
+    environment:
+      HOMEFINDER_SCRAPER_OLX_FALLBACK_ENDPOINT: http://scraper-vps-olx:8000
+      HOMEFINDER_SCRAPER_OTODOM_FALLBACK_ENDPOINT: http://scraper-vps-otodom:8000
+      HOMEFINDER_SCRAPER_MORIZON_FALLBACK_ENDPOINT: http://scraper-vps-morizon:8000
+      HOMEFINDER_SCRAPER_GRATKA_FALLBACK_ENDPOINT: http://scraper-vps-gratka:8000
+    depends_on:
+      scraper-vps-olx:
+        condition: service_healthy
+      scraper-vps-otodom:
+        condition: service_healthy
+      scraper-vps-morizon:
+        condition: service_healthy
+      scraper-vps-gratka:
+        condition: service_healthy
+    networks:
+      - backend
+      - egress
+      - scraper-control
+
+  scraper-vps-olx:
+    <<: *vps-scraper
+    command:
+      - homefinder
+      - scraper-server
+      - --source
+      - olx
+      - --token-file
+      - /run/secrets/scraper_token
+      - --state-file
+      - /var/lib/homefinder-scraper/rate-limit.json
+      - --minimum-interval-seconds
+      - "15"
+      - --jitter-seconds
+      - "5"
+      - --daily-limit
+      - "150"
+      - --host
+      - 0.0.0.0
+    volumes:
+      - type: bind
+        source: >-
+          ${HOMEZ_VPS_SCRAPER_STATE_DIR:?set VPS scraper state dir}/olx
+        target: /var/lib/homefinder-scraper
+
+  scraper-vps-otodom:
+    <<: *vps-scraper
+    command:
+      - homefinder
+      - scraper-server
+      - --source
+      - otodom
+      - --token-file
+      - /run/secrets/scraper_token
+      - --state-file
+      - /var/lib/homefinder-scraper/rate-limit.json
+      - --minimum-interval-seconds
+      - "15"
+      - --jitter-seconds
+      - "5"
+      - --daily-limit
+      - "150"
+      - --host
+      - 0.0.0.0
+    volumes:
+      - type: bind
+        source: >-
+          ${HOMEZ_VPS_SCRAPER_STATE_DIR:?set VPS scraper state dir}/otodom
+        target: /var/lib/homefinder-scraper
+
+  scraper-vps-morizon:
+    <<: *vps-scraper
+    command:
+      - homefinder
+      - scraper-server
+      - --source
+      - morizon
+      - --token-file
+      - /run/secrets/scraper_token
+      - --state-file
+      - /var/lib/homefinder-scraper/rate-limit.json
+      - --minimum-interval-seconds
+      - "15"
+      - --jitter-seconds
+      - "5"
+      - --daily-limit
+      - "150"
+      - --host
+      - 0.0.0.0
+    volumes:
+      - type: bind
+        source: >-
+          ${HOMEZ_VPS_SCRAPER_STATE_DIR:?set VPS scraper state dir}/morizon
+        target: /var/lib/homefinder-scraper
+
+  scraper-vps-gratka:
+    <<: *vps-scraper
+    command:
+      - homefinder
+      - scraper-server
+      - --source
+      - gratka
+      - --token-file
+      - /run/secrets/scraper_token
+      - --state-file
+      - /var/lib/homefinder-scraper/rate-limit.json
+      - --minimum-interval-seconds
+      - "15"
+      - --jitter-seconds
+      - "5"
+      - --daily-limit
+      - "150"
+      - --host
+      - 0.0.0.0
+    volumes:
+      - type: bind
+        source: >-
+          ${HOMEZ_VPS_SCRAPER_STATE_DIR:?set VPS scraper state dir}/gratka
+        target: /var/lib/homefinder-scraper
+
+networks:
+  scraper-control:
+    internal: true
+  scraper-egress:
+    driver: bridge
+
+secrets:
+  scraper_token:
+    file: "${HOMEZ_SECRETS_DIR:?set HOMEZ_SECRETS_DIR}/scraper-token"

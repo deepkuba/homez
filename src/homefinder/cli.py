@@ -139,7 +139,7 @@ def _parser() -> argparse.ArgumentParser:
     runtime_health.add_argument("--max-age-seconds", type=float, required=True)
     scraper_server = commands.add_parser(
         "scraper-server",
-        help="serve one source-pinned NAS scraper",
+        help="serve one source-pinned remote scraper",
         allow_abbrev=False,
     )
     scraper_server.add_argument(
@@ -433,6 +433,12 @@ def _remote_scrapers(
         "morizon": settings.scraper_morizon_endpoint,
         "gratka": settings.scraper_gratka_endpoint,
     }
+    fallback_endpoints = {
+        "olx": settings.scraper_olx_fallback_endpoint,
+        "otodom": settings.scraper_otodom_fallback_endpoint,
+        "morizon": settings.scraper_morizon_fallback_endpoint,
+        "gratka": settings.scraper_gratka_fallback_endpoint,
+    }
     enabled = {
         source: _load_source_policy(settings.gmail_source_policy_file, source)
         for source in endpoints
@@ -446,16 +452,17 @@ def _remote_scrapers(
         return {}
     if settings.scraper_token_file is None:
         raise SystemExit(
-            "NAS scraper token file is required when page fetching is enabled"
+            "remote scraper token file is required when page fetching is enabled"
         )
     scrapers: dict[str, Callable[[str], ScrapedListing]] = {}
     for source, policy in requested.items():
         endpoint = endpoints[source]
         if not endpoint:
-            raise SystemExit(f"NAS scraper endpoint is required for {source}")
+            raise SystemExit(f"remote scraper endpoint is required for {source}")
         scrapers[source] = RemotePortalScraper(
             source,
             endpoint=endpoint,
+            fallback_endpoint=fallback_endpoints[source],
             token_file=settings.scraper_token_file,
             timeout_seconds=policy.timeout_seconds,
         ).scrape

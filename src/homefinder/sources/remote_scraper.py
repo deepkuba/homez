@@ -1,4 +1,4 @@
-"""Client for source-isolated scraper processes running on the NAS."""
+"""Client for redundant source-isolated scraper processes."""
 
 from __future__ import annotations
 
@@ -22,11 +22,15 @@ RemoteRequester = Callable[[str, str, str, float, int], bytes]
 
 
 class RemoteScrapeDeferred(PageScrapeError):
-    """The NAS scraper asked the durable workflow to retry later."""
+    """A scraper asked the durable workflow to retry later."""
 
     def __init__(self, retry_after_seconds: int) -> None:
         self.retry_after_seconds = max(1, min(retry_after_seconds, 86_400))
         super().__init__("portal request deferred")
+
+
+class RemoteScraperUnavailable(PageScrapeError):
+    """A scraper service could not be reached or failed server-side."""
 
 
 class RemotePortalScraper:
@@ -35,6 +39,7 @@ class RemotePortalScraper:
         source_key: str,
         *,
         endpoint: str,
+        fallback_endpoint: str | None = None,
         token_file: Path,
         timeout_seconds: float = 45.0,
         requester: RemoteRequester | None = None,
@@ -44,7 +49,12 @@ class RemotePortalScraper:
         if timeout_seconds <= 0:
             raise ValueError("scraper timeout must be positive")
         self.source_key = source_key
-        self.endpoint = _scrape_endpoint(endpoint)
+        self.endpoint = _scrape_endpoint(endpoint, source_key=source_key)
+        self.fallback_endpoint = (
+            _scrape_endpoint(fallback_endpoint, source_key=source_key)
+            if fallback_endpoint is not None
+            else None
+        )
         self.token_file = token_file
         self.timeout_seconds = timeout_seconds
         self._requester = requester or _post_scrape
@@ -52,21 +62,13 @@ class RemotePortalScraper:
     def scrape(self, url: str) -> ScrapedListing:
         canonical_url, listing_id = validate_listing_url(self.source_key, url)
         token = read_secret_text(self.token_file)
+        raw = self._request(canonical_url, token)
         try:
-            raw = self._requester(
-                self.endpoint,
-                canonical_url,
-                token,
-                self.timeout_seconds,
-                MAX_SCRAPER_RESPONSE_BYTES,
-            )
             payload = json.loads(raw)
-        except PageScrapeError:
-            raise
-        except Exception as error:
-            raise PageScrapeError("NAS scraper request failed") from error
+        except (json.JSONDecodeError, UnicodeDecodeError) as error:
+            raise PageScrapeError("scraper response is invalid") from error
         if not isinstance(payload, Mapping):
-            raise PageScrapeError("NAS scraper response is invalid")
+            raise PageScrapeError("scraper response is invalid")
         result = ScrapedListing.from_json(payload)
         result_url, result_id = validate_listing_url(
             self.source_key, result.canonical_url
@@ -77,11 +79,37 @@ class RemotePortalScraper:
             or result_id.casefold() != listing_id.casefold()
             or result.source_listing_id.casefold() != listing_id.casefold()
         ):
-            raise PageScrapeError("NAS scraper response is inconsistent")
+            raise PageScrapeError("scraper response is inconsistent")
         return result
 
+    def _request(self, canonical_url: str, token: str) -> bytes:
+        endpoints = tuple(
+            endpoint
+            for endpoint in (self.endpoint, self.fallback_endpoint)
+            if endpoint is not None
+        )
+        for position, endpoint in enumerate(endpoints):
+            try:
+                return self._requester(
+                    endpoint,
+                    canonical_url,
+                    token,
+                    self.timeout_seconds,
+                    MAX_SCRAPER_RESPONSE_BYTES,
+                )
+            except RemoteScraperUnavailable:
+                if position == len(endpoints) - 1:
+                    raise
+            except PageScrapeError:
+                raise
+            except Exception as error:
+                unavailable = RemoteScraperUnavailable("scraper service request failed")
+                if position == len(endpoints) - 1:
+                    raise unavailable from error
+        raise RemoteScraperUnavailable("no scraper service is available")
 
-def _scrape_endpoint(value: str) -> str:
+
+def _scrape_endpoint(value: str, *, source_key: str) -> str:
     try:
         parsed = urlsplit(value)
         port = parsed.port
@@ -97,12 +125,18 @@ def _scrape_endpoint(value: str) -> str:
         or parsed.path not in {"", "/"}
     ):
         raise ValueError("scraper endpoint is invalid")
-    is_tailnet = _is_tailscale_ip(
-        parsed.hostname
-    ) or parsed.hostname.casefold().endswith(".ts.net")
-    if not is_tailnet:
-        raise ValueError("scraper endpoint must use a Tailscale address")
-    if parsed.scheme == "http" and not _is_tailscale_ip(parsed.hostname):
+    hostname = parsed.hostname.casefold()
+    internal_hostname = f"scraper-vps-{source_key}"
+    is_internal = hostname == internal_hostname
+    is_tailnet = _is_tailscale_ip(hostname) or hostname.endswith(".ts.net")
+    if not is_internal and not is_tailnet:
+        raise ValueError(
+            "scraper endpoint must use a Tailscale address or "
+            "source-pinned private service"
+        )
+    if is_internal and (parsed.scheme != "http" or port not in {None, 8000}):
+        raise ValueError("private scraper endpoint must use its internal HTTP port")
+    if not is_internal and parsed.scheme == "http" and not _is_tailscale_ip(hostname):
         raise ValueError("cleartext scraper endpoint must use a Tailscale IP")
     authority = parsed.hostname
     if ":" in authority:
@@ -131,7 +165,7 @@ def _post_scrape(
 ) -> bytes:
     parsed = urlsplit(endpoint)
     if parsed.hostname is None:
-        raise PageScrapeError("NAS scraper endpoint is invalid")
+        raise PageScrapeError("scraper endpoint is invalid")
     connection_type = (
         http.client.HTTPSConnection
         if parsed.scheme == "https"
@@ -155,18 +189,20 @@ def _post_scrape(
         response = connection.getresponse()
         if response.status == 429:
             raise RemoteScrapeDeferred(_retry_after(response.getheader("Retry-After")))
+        if response.status >= 500:
+            raise RemoteScraperUnavailable("scraper service is unavailable")
         if response.status != 200:
-            raise PageScrapeError("NAS scraper returned an unexpected status")
+            raise PageScrapeError("scraper returned an unexpected status")
         content_type = response.getheader("Content-Type", "").casefold()
         if not content_type.startswith("application/json"):
-            raise PageScrapeError("NAS scraper returned an unexpected content type")
+            raise PageScrapeError("scraper returned an unexpected content type")
         response_body = response.read(max_bytes + 1)
     except (OSError, http.client.HTTPException) as error:
-        raise PageScrapeError("NAS scraper request failed") from error
+        raise RemoteScraperUnavailable("scraper service request failed") from error
     finally:
         connection.close()
     if len(response_body) > max_bytes:
-        raise PageScrapeError("NAS scraper response exceeds the size limit")
+        raise PageScrapeError("scraper response exceeds the size limit")
     return response_body
 
 

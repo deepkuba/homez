@@ -46,6 +46,7 @@ jobs:
           .github/workflows .github/dependabot.yml
           infra/compose.yaml infra/compose.shared-vps.yaml
           infra/compose.scraping-vps.yaml infra/compose.nas-scrapers.yaml
+          infra/compose.local-scrapers-vps.yaml
       - name: Upload unit evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -138,6 +139,7 @@ jobs:
           export HOMEZ_SECRETS_DIR="$RUNNER_TEMP/homez-secrets"
           export HOMEZ_SCRAPER_SECRETS_DIR="$RUNNER_TEMP/homez-secrets"
           export HOMEZ_SCRAPER_STATE_DIR="$RUNNER_TEMP/homez-scraper-state"
+          export HOMEZ_VPS_SCRAPER_STATE_DIR="$RUNNER_TEMP/homez-scraper-state"
           export HOMEZ_CONFIG_DIR="$RUNNER_TEMP/homez-config"
           export HOMEZ_STATE_DIR="$RUNNER_TEMP/homez-state"
           install -d -m 0700 "$HOMEZ_SECRETS_DIR" "$HOMEZ_CONFIG_DIR"
@@ -199,6 +201,13 @@ jobs:
             docker compose --project-name homez-nas-ci \
               -f infra/compose.nas-scrapers.yaml "$@"
           }
+          local_vps_scrapers() {
+            docker compose --project-name homez-local-vps-ci \
+              -f infra/compose.yaml \
+              -f infra/compose.shared-vps.yaml \
+              -f infra/compose.scraping-vps.yaml \
+              -f infra/compose.local-scrapers-vps.yaml "$@"
+          }
           cleanup() {
             compose down --volumes --remove-orphans
           }
@@ -210,6 +219,8 @@ jobs:
             "$RUNNER_TEMP/homez-scraping-compose.rendered"
           nas_scrapers config --format json > \
             "$RUNNER_TEMP/homez-nas-compose.json"
+          local_vps_scrapers config --format json > \
+            "$RUNNER_TEMP/homez-local-vps-compose.json"
           python - "$RUNNER_TEMP/homez-shared-compose.json" <<'PY'
           import json
           import sys
@@ -244,6 +255,8 @@ jobs:
           ! grep -F 'fake-mail-token' "$RUNNER_TEMP/homez-compose.rendered"
           ! grep -F 'fake-scraper-token' \
             "$RUNNER_TEMP/homez-scraping-compose.rendered"
+          ! grep -F 'fake-scraper-token' \
+            "$RUNNER_TEMP/homez-local-vps-compose.json"
           compose run --rm --no-deps workflow-worker sh -c \
             'test -r /var/lib/homefinder/gmail-token.json &&
             touch /var/lib/homefinder/.write-probe &&

@@ -1,4 +1,4 @@
-"""Authenticated HTTP boundary for a single NAS scraper process."""
+"""Authenticated HTTP boundary for a single source-pinned scraper process."""
 
 from __future__ import annotations
 
