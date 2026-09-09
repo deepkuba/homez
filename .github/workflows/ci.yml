@@ -202,7 +202,11 @@ jobs:
               -f infra/compose.nas-scrapers.yaml "$@"
           }
           local_vps_scrapers() {
-            docker compose --project-name homez-local-vps-ci \
+            HOMEFINDER_SCRAPER_OLX_ENDPOINT=http://100.64.0.10:18101 \
+            HOMEFINDER_SCRAPER_OTODOM_ENDPOINT=http://100.64.0.10:18102 \
+            HOMEFINDER_SCRAPER_MORIZON_ENDPOINT=http://100.64.0.10:18103 \
+            HOMEFINDER_SCRAPER_GRATKA_ENDPOINT=http://100.64.0.10:18104 \
+              docker compose --project-name homez-local-vps-ci \
               -f infra/compose.yaml \
               -f infra/compose.shared-vps.yaml \
               -f infra/compose.scraping-vps.yaml \
