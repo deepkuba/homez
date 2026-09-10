@@ -819,6 +819,44 @@ Commit: `feat(operations): add parser maintenance and quality views`
 
 ### Slice 10 — Recovery and backlog migration tooling
 
+Status: repository implementation complete (2026-09-10); releases remain gated.
+
+Evidence:
+- Added the named PostgreSQL newest-capture test first; it skipped because no
+  disposable PostgreSQL URL was configured. A fake-backed vertical test then
+  failed on the missing recovery repository before implementation.
+- Activation now invokes bounded artifact-recovery planning after its audited
+  pointer change. Planning selects only the newest capture of the newest
+  snapshot per non-inactive listing, requires a stored unexpired artifact and a
+  revoked or incomplete prior result, and deduplicates by portal, content hash,
+  and release hash so epoch changes cannot cause same-version replay loops.
+- Artifact recovery has a distinct queue binding and completion path. It exposes
+  the exact retained artifact/capture identity, creates no page capture or portal
+  request, preserves original `fetched_at`-derived result expiry, writes a new
+  immutable production result, and reuses the diagnostic artifact when fields
+  remain missing. Live work retains priority 0 over artifact priority 10 and
+  network-recovery priority 20.
+- Manual network recovery remains held by default. The operator command defaults
+  to dry-run, requires an explicit portal and `50`, `150`, or `remainder` batch,
+  and requires both `--execute` and a bounded actor to mutate state. A locked
+  campaign enforces the sequence exactly once, records each release, and pauses
+  for source cooldown, portal denial, a material new variant, or a confirmed
+  production regression. No command was executed against a real backlog.
+- Transactional legacy migration locks retry/dead-letter normalization jobs,
+  retains their attempt rows, marks them superseded, clears stale leases, and
+  creates one held task for each active listing's newest snapshot and active
+  release. Explicit inactive lifecycle evidence suppresses recovery; `stale`
+  remains distinct and eligible.
+- Focused recovery, queue, activation, capture-handoff, and normalization suite:
+  **28 passed**, with the named PostgreSQL test skipped locally. A synthetic
+  968-task backlog proves dry-run and 50/150/remainder release behavior without
+  any fetch. Ruff format/lint, strict mypy, and SQLite migration upgrade,
+  downgrade, and schema-drift checks pass.
+- PostgreSQL race tests remain a CI gate and the production backlog release is an
+  explicit authority boundary. Deployment must also wire the NAS artifact reader
+  to the artifact replay input; neither network recovery nor parser activation
+  is authorized by this repository change.
+
 First failing test:
 `tests/integration/test_parser_recovery_postgres.py::test_activation_replays_only_newest_capture_without_fetch`.
 

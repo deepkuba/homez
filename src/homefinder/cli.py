@@ -30,6 +30,7 @@ from homefinder.operations.backup import (
     prune_backups,
     restore_database,
 )
+from homefinder.parser_recovery import ParserRecoveryRepository, RecoveryBatch
 from homefinder.runtime import (
     heartbeat_is_fresh,
     install_stop_signals,
@@ -153,11 +154,45 @@ def _parser() -> argparse.ArgumentParser:
     scraper_server.add_argument("--daily-limit", type=int, default=150)
     scraper_server.add_argument("--host", default="127.0.0.1")
     scraper_server.add_argument("--port", type=int, default=8000)
+    recovery = commands.add_parser(
+        "release-parser-recovery", help="preview or release a recovery batch"
+    )
+    recovery.add_argument(
+        "--source", required=True, choices=("gratka", "morizon", "otodom", "olx")
+    )
+    recovery.add_argument("--batch", required=True, choices=("50", "150", "remainder"))
+    recovery.add_argument("--execute", action="store_true")
+    recovery.add_argument("--actor")
     return parser
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
+    if args.command == "release-parser-recovery":
+        settings = Settings()
+        engine = create_engine(settings.database_url.get_secret_value())
+        try:
+            repository = ParserRecoveryRepository(
+                sessionmaker(engine, expire_on_commit=False)
+            )
+            batch: RecoveryBatch = (
+                "remainder"
+                if args.batch == "remainder"
+                else 50
+                if args.batch == "50"
+                else 150
+            )
+            recovery_result = repository.release_network_batch(
+                source=args.source,
+                now=datetime.now(timezone.utc),
+                batch=batch,
+                execute=args.execute,
+                actor=args.actor,
+            )
+            print(json.dumps(recovery_result.__dict__, sort_keys=True))
+        finally:
+            engine.dispose()
+        return 0
     if args.command == "scraper-server":
         read_secret_text(args.token_file)
         uvicorn.run(

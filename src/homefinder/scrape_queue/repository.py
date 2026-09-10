@@ -17,6 +17,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
 from homefinder.catalog.orm import (
+    ArtifactRecoveryBindingRecord,
     DiagnosticRunRecord,
     ListingRecord,
     ListingSnapshotRecord,
@@ -43,6 +44,7 @@ from homefinder.parsers.contracts import (
     resolve_fields,
 )
 from homefinder.scrape_queue.contracts import (
+    ArtifactReplayInput,
     CaptureOutcome,
     LostLease,
     QueuePolicy,
@@ -604,6 +606,108 @@ class ScrapeQueueRepository:
                     for name in DECLARED_FIELDS
                 ),
             )
+
+    def artifact_replay_input(
+        self, worker: WorkerIdentity, lease: ScrapeLease, *, now: datetime
+    ) -> ArtifactReplayInput:
+        if lease.task_class is not TaskClass.ARTIFACT_RECOVERY:
+            raise ValueError("artifact recovery lease required")
+        with self._sessions.begin() as session:
+            task = self._leased(session, worker, lease, now)
+            binding = session.get(ArtifactRecoveryBindingRecord, task.id)
+            if binding is None:
+                raise LostLease("artifact recovery binding missing")
+            return ArtifactReplayInput(
+                binding.capture_id,
+                binding.artifact_id,
+                aware(binding.fetched_at),
+                binding.content_hash,
+                aware(binding.result_expires_at),
+            )
+
+    def complete_artifact_replay(
+        self,
+        worker: WorkerIdentity,
+        lease: ScrapeLease,
+        result: ParserResult,
+        *,
+        now: datetime,
+    ) -> None:
+        if lease.task_class is not TaskClass.ARTIFACT_RECOVERY:
+            raise ValueError("artifact recovery lease required")
+        fields = result.fields or resolve_fields(result.candidates)
+        if result.release_hash != lease.release_hash or len(fields) != len(
+            DECLARED_FIELDS
+        ):
+            raise ValueError("invalid replay result")
+        with self._sessions.begin() as session:
+            task = self._leased(session, worker, lease, now)
+            binding = session.get(ArtifactRecoveryBindingRecord, task.id)
+            if binding is None or result.capture_id != binding.capture_id:
+                raise LostLease("artifact recovery binding changed")
+            result_id = uuid4()
+            encoded = TypeAdapter(ParserResult).dump_json(result)
+            session.add(
+                ProductionParserResultRecord(
+                    id=result_id,
+                    task_id=task.id,
+                    capture_id=binding.capture_id,
+                    release_hash=task.release_hash,
+                    activation_epoch=task.activation_epoch,
+                    variant=result.variant,
+                    facts_json=result.facts.model_dump_json(),
+                    missing_fields_json=json.dumps(result.missing_fields),
+                    result_hash=hashlib.sha256(encoded).hexdigest(),
+                    expires_at=binding.result_expires_at,
+                )
+            )
+            session.flush()
+            for position, candidate in enumerate(result.candidates):
+                session.add(
+                    ProductionFieldCandidateRecord(
+                        result_id=result_id,
+                        position=position,
+                        name=candidate.name,
+                        value_json=json.dumps(candidate.value),
+                        origin=candidate.origin,
+                        locator=candidate.locator,
+                    )
+                )
+            for field in fields:
+                session.add(
+                    ProductionResolvedFieldRecord(
+                        result_id=result_id,
+                        name=field.name,
+                        state=field.state.value,
+                        value_json=(
+                            json.dumps(field.value) if field.value is not None else None
+                        ),
+                        selected_origin=field.selected_origin,
+                    )
+                )
+            if result.missing_fields:
+                session.add(
+                    DiagnosticRunRecord(
+                        id=uuid4(),
+                        result_id=result_id,
+                        artifact_id=binding.artifact_id,
+                        artifact_status="stored",
+                        missing_fields_json=json.dumps(result.missing_fields),
+                        created_at=now,
+                        expires_at=min(
+                            binding.result_expires_at, now + timedelta(days=30)
+                        ),
+                    )
+                )
+            attempt = session.get(ScrapeAttemptRecord, (task.id, task.attempt_count))
+            if attempt is None:
+                raise LostLease("lease attempt missing")
+            attempt.finished_at = now
+            attempt.outcome = "succeeded"
+            attempt.code = "partial" if result.missing_fields else "downloaded"
+            task.state = "succeeded"
+            task.finished_at = now
+            self._clear_lease(task)
 
     def task_state(self, task_id: UUID) -> str | None:
         with self._sessions() as session:

@@ -110,6 +110,15 @@ class CaptureOutcome:
 
 
 @dataclass(frozen=True)
+class ArtifactReplayInput:
+    capture_id: UUID
+    artifact_id: str = field(repr=False)
+    fetched_at: datetime
+    content_hash: str
+    result_expires_at: datetime
+
+
+@dataclass(frozen=True)
 class SourceBudgetPolicy:
     minimum_interval: timedelta
     daily_attempt_limit: int

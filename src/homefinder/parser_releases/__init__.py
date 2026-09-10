@@ -19,6 +19,7 @@ from homefinder.catalog.orm import (
     ScraperWorkerRecord,
     SourceRecord,
 )
+from homefinder.parser_recovery import ParserRecoveryRepository
 from homefinder.parsers.contracts import Portal
 
 _HASH = re.compile(r"[0-9a-f]{64}")
@@ -89,10 +90,22 @@ class ParserReleaseRepository:
         worker_health_seconds: int = 90,
         eligibility: Callable[[Session, Portal, str, str, datetime], bool]
         | None = None,
+        recovery: Callable[[Portal, str, int, datetime], object] | None = None,
     ) -> None:
         self._sessions = sessions
         self._worker_health = timedelta(seconds=worker_health_seconds)
         self._eligibility = eligibility or persisted_eligibility
+        recovery_repository = ParserRecoveryRepository(sessions)
+        self._recovery = recovery or (
+            lambda source, release_hash, epoch, now: (
+                recovery_repository.plan_artifact_recovery(
+                    source=source,
+                    release_hash=release_hash,
+                    activation_epoch=epoch,
+                    now=now,
+                )
+            )
+        )
 
     def register(self, build: ReleaseBuild, *, now: datetime) -> RegisteredRelease:
         _aware(now)
@@ -125,7 +138,7 @@ class ParserReleaseRepository:
         now: datetime,
         expected_epoch: int | None = None,
     ) -> int:
-        return self._change(
+        epoch = self._change(
             source=source,
             release_hash=release_hash,
             actor=actor,
@@ -134,6 +147,8 @@ class ParserReleaseRepository:
             action="activate",
             expected_epoch=expected_epoch,
         )
+        self._recovery(source, release_hash, epoch, now)
+        return epoch
 
     def rollback(
         self,

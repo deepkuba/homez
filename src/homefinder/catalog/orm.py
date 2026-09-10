@@ -53,13 +53,21 @@ class SourceRecord(Base):
 
 class ListingRecord(Base):
     __tablename__ = "listings"
-    __table_args__ = (UniqueConstraint("source_id", "source_listing_id"),)
+    __table_args__ = (
+        UniqueConstraint("source_id", "source_listing_id"),
+        CheckConstraint(
+            "lifecycle_state IN ('active', 'stale', 'inactive')",
+            name="ck_listing_lifecycle",
+        ),
+    )
 
     id: Mapped[UUID] = mapped_column(primary_key=True)
     source_id: Mapped[UUID] = mapped_column(ForeignKey("sources.id"), index=True)
     source_listing_id: Mapped[str] = mapped_column(String(255))
     canonical_url: Mapped[str] = mapped_column(String(2048))
     title: Mapped[str] = mapped_column(String(500))
+    lifecycle_state: Mapped[str] = mapped_column(String(12), server_default="active")
+    lifecycle_evidence: Mapped[str | None] = mapped_column(String(80), nullable=True)
 
 
 class ListingSnapshotRecord(Base):
@@ -649,7 +657,7 @@ class ScrapeTaskRecord(Base):
         CheckConstraint("activation_epoch > 0", name="ck_scrape_task_epoch"),
         CheckConstraint(
             "state IN ('pending', 'running', 'deferred', "
-            "'succeeded', 'failed', 'held')",
+            "'succeeded', 'failed', 'held', 'superseded', 'cancelled')",
             name="ck_scrape_task_state",
         ),
         CheckConstraint("attempt_count >= 0", name="ck_scrape_task_attempt_count"),
@@ -847,6 +855,45 @@ class DiagnosticRunRecord(Base):
     missing_fields_json: Mapped[str] = mapped_column(String(2048))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class ArtifactRecoveryBindingRecord(Base):
+    """Network-free immutable capture input for one production replay task."""
+
+    __tablename__ = "artifact_recovery_bindings"
+
+    task_id: Mapped[UUID] = mapped_column(
+        ForeignKey("scrape_tasks.id"), primary_key=True
+    )
+    capture_id: Mapped[UUID] = mapped_column(ForeignKey("page_captures.id"))
+    artifact_id: Mapped[str] = mapped_column(String(36))
+    content_hash: Mapped[str] = mapped_column(String(64))
+    fetched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    result_expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class NetworkRecoveryReleaseRecord(Base):
+    __tablename__ = "network_recovery_releases"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True)
+    source: Mapped[str] = mapped_column(String(20))
+    release_hash: Mapped[str] = mapped_column(String(64))
+    activation_epoch: Mapped[int]
+    batch: Mapped[str] = mapped_column(String(12))
+    actor: Mapped[str] = mapped_column(String(200))
+    eligible_count: Mapped[int]
+    released_count: Mapped[int]
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class NetworkRecoveryCampaignRecord(Base):
+    __tablename__ = "network_recovery_campaigns"
+
+    source: Mapped[str] = mapped_column(String(20), primary_key=True)
+    release_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    next_batch: Mapped[int] = mapped_column(server_default="0")
+    paused_reason: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
 class BenchmarkManifestRecord(Base):
