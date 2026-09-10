@@ -71,6 +71,27 @@ def test_portal_parsers_do_not_import_each_other() -> None:
         )
 
 
+def test_portal_parsers_share_no_extraction_code() -> None:
+    allowed = {"homefinder.parsers.contracts"}
+    for portal in PORTALS:
+        parser = ROOT / "parsers" / portal / "parser.py"
+        assert parser.exists(), f"missing independent parser: {portal}"
+        internal = {
+            dependency
+            for dependency in imports(parser)
+            if dependency.startswith("homefinder.")
+        }
+        forbidden = {
+            dependency
+            for dependency in internal
+            if not any(
+                dependency == item or dependency.startswith(item + ".")
+                for item in allowed
+            )
+        }
+        assert not forbidden, f"{portal} shares extraction code: {forbidden}"
+
+
 def test_workers_do_not_import_catalog_orm() -> None:
     check_tree("scraper", {"homefinder.catalog", "sqlalchemy", "psycopg"})
 

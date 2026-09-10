@@ -1,1 +1,5 @@
-"""ADR 0017 parsers/otodom boundary; disabled until explicit cutover."""
+"""Independent Otodom production parser boundary."""
+
+from homefinder.parsers.otodom.parser import OtodomPageParser
+
+__all__ = ["OtodomPageParser"]

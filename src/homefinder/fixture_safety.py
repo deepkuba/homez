@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import argparse
+import json
 import re
 from dataclasses import dataclass
 from email import policy
 from email.parser import BytesParser
+from html import unescape
+from html.parser import HTMLParser
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -71,8 +74,187 @@ def _decoded_message_text(raw: bytes) -> str:
     return "\n".join((text, *decoded_parts))
 
 
+MAX_FIXTURE_BYTES = 2 * 1024 * 1024
+FIXTURE_SUFFIXES = frozenset({".eml", ".html", ".json"})
+PARSER_URL_PATTERN = re.compile(r"(?:[a-z][a-z0-9+.-]*:)?//[^\s<>\"']+", re.I)
+SECRET_KEY_PATTERN = re.compile(
+    r"^(?:password|secret|client_secret|access_token|refresh_token|token|"
+    r"api[_-]?key|authorization|cookie|signature|tracking[_-]?id|recipient[_-]?id)$",
+    re.I,
+)
+PHONE_PATTERN = re.compile(r"(?<!\w)(?:\+\d[\d ()-]{7,}\d)(?!\w)")
+
+
+def _json_text(text: str) -> str:
+    def pairs(items: list[tuple[str, object]]) -> dict[str, object]:
+        result: dict[str, object] = {}
+        for key, value in items:
+            if key in result or SECRET_KEY_PATTERN.fullmatch(key):
+                raise ValueError("Duplicate or sensitive JSON key")
+            result[key] = value
+        return result
+
+    def invalid_constant(value: str) -> object:
+        raise ValueError("Nonstandard JSON constant")
+
+    value = json.loads(text, object_pairs_hook=pairs, parse_constant=invalid_constant)
+    return json.dumps(value, ensure_ascii=False)
+
+
+class _FixtureHTMLParser(HTMLParser):
+    """Accept a small, explicitly closed synthetic HTML subset."""
+
+    void_tags = frozenset(
+        {
+            "area",
+            "base",
+            "br",
+            "col",
+            "embed",
+            "hr",
+            "img",
+            "input",
+            "link",
+            "meta",
+            "param",
+            "source",
+            "track",
+            "wbr",
+        }
+    )
+    forbidden_tags = frozenset(
+        {"iframe", "object", "embed", "style", "base", "link", "svg", "math"}
+    )
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.stack: list[str] = []
+        self.script_data: list[str] = []
+        self.decoded: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        raw_tag = self.get_starttag_text() or ""
+        if not re.fullmatch(
+            r"<[A-Za-z][A-Za-z0-9:-]*(?:\s+[A-Za-z_:][A-Za-z0-9_.:-]*"
+            r"(?:\s*=\s*(?:\"[^\"]*\"|'[^']*'|[^\s\"'=<>`]+))?)*\s*/?>",
+            raw_tag,
+        ):
+            raise ValueError("Malformed HTML attributes")
+        if tag in self.forbidden_tags:
+            raise ValueError("Executable markup")
+        if len({key for key, _ in attrs}) != len(attrs):
+            raise ValueError("Duplicate attributes")
+        for key, value in attrs:
+            if key.startswith("on") or key in {"style", "srcdoc"}:
+                raise ValueError("Executable attribute")
+            self.decoded.append(value or "")
+        if tag == "meta" and "http-equiv" in dict(attrs):
+            raise ValueError("Active metadata")
+        if tag == "script":
+            if dict(attrs).get("type") not in {
+                "application/ld+json",
+                "application/json",
+            }:
+                raise ValueError("Executable script")
+            if "src" in dict(attrs):
+                raise ValueError("External script")
+            self.script_data = []
+        if tag not in self.void_tags:
+            self.stack.append(tag)
+
+    def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        self.handle_starttag(tag, attrs)
+        if tag not in self.void_tags:
+            self.handle_endtag(tag)
+
+    def handle_endtag(self, tag: str) -> None:
+        if not self.stack or self.stack.pop() != tag:
+            raise ValueError("Unbalanced HTML")
+        if tag == "script":
+            self.decoded.append(_json_text("".join(self.script_data)))
+
+    def handle_data(self, data: str) -> None:
+        if self.stack and self.stack[-1] == "script":
+            self.script_data.append(data)
+        elif "<" in data or ">" in data:
+            raise ValueError("Unparsed markup")
+        self.decoded.append(data)
+
+    def handle_comment(self, data: str) -> None:
+        raise ValueError("Comments are outside the synthetic fixture subset")
+
+    def handle_decl(self, decl: str) -> None:
+        if decl.lower() != "doctype html":
+            raise ValueError("Unsupported declaration")
+
+    def unknown_decl(self, data: str) -> None:
+        raise ValueError("Unsupported declaration")
+
+    def handle_pi(self, data: str) -> None:
+        raise ValueError("Processing instruction")
+
+
+def _scan_parser_fixture(path: Path, raw: bytes) -> list[FixtureViolation]:
+    try:
+        text = raw.decode("utf-8", errors="strict")
+        if path.suffix.lower() == ".json":
+            text += "\n" + _json_text(text)
+        else:
+            # HTMLParser repairs or silently discards malformed input; first require
+            # every byte to belong to a complete text or markup token.
+            tokens = re.findall(r"[^<>]+|<(?:[^<>\"']|\"[^\"]*\"|'[^']*')*>", text)
+            if "".join(tokens) != text:
+                raise ValueError("Unparsed HTML content")
+            parser = _FixtureHTMLParser()
+            parser.feed(text)
+            parser.close()
+            if parser.stack:
+                raise ValueError("Unclosed HTML")
+            text += "\n" + "\n".join(parser.decoded)
+        text = unescape(text)
+    except (ValueError, RecursionError, AssertionError):
+        return [
+            FixtureViolation(path, 1, "unparsed-fixture", "Invalid or unsafe structure")
+        ]
+    violations: set[FixtureViolation] = set()
+    for number, line in enumerate(text.splitlines(), 1):
+        for match in EMAIL_PATTERN.finditer(line):
+            if not _is_reserved_host(match.group(2)):
+                violations.add(
+                    FixtureViolation(path, number, "personal-email", "redacted")
+                )
+        for match in PARSER_URL_PATTERN.finditer(line):
+            try:
+                host = urlsplit(match.group()).hostname
+            except ValueError:
+                host = None
+            if host is None or not _is_reserved_host(host):
+                violations.add(FixtureViolation(path, number, "active-url", "redacted"))
+        if re.search(
+            r"(?:javascript|vbscript|data|tel|sms):", re.sub(r"\s+", "", line), re.I
+        ):
+            violations.add(FixtureViolation(path, number, "active-content", "redacted"))
+        if PHONE_PATTERN.search(line):
+            violations.add(FixtureViolation(path, number, "personal-phone", "redacted"))
+        if TOKEN_PATTERN.search(line) or re.search(
+            r"(?:password|secret|api[_-]?key|token)[\"']?\s*[:=]", line, re.I
+        ):
+            violations.add(
+                FixtureViolation(path, number, "token-like-data", "redacted")
+            )
+    return sorted(violations)
+
+
 def scan_fixture_file(path: Path) -> list[FixtureViolation]:
-    raw = path.read_bytes()
+    try:
+        with path.open("rb") as stream:
+            raw = stream.read(MAX_FIXTURE_BYTES + 1)
+    except OSError:
+        return [FixtureViolation(path, 1, "unreadable-fixture", "Cannot read fixture")]
+    if len(raw) > MAX_FIXTURE_BYTES:
+        return [FixtureViolation(path, 1, "oversized-fixture", "Fixture exceeds 2 MiB")]
+    if path.suffix.lower() in {".html", ".json"}:
+        return _scan_parser_fixture(path, raw)
     text = _decoded_message_text(raw)
     message = BytesParser(policy=policy.default).parsebytes(raw)
     violations: set[FixtureViolation] = set()
@@ -112,21 +294,33 @@ def scan_fixture_file(path: Path) -> list[FixtureViolation]:
 
 def scan_fixture_paths(paths: tuple[Path, ...]) -> list[FixtureViolation]:
     fixture_files: set[Path] = set()
+    violations: list[FixtureViolation] = []
     for path in paths:
-        if path.is_file() and path.suffix.lower() == ".eml":
+        if path.is_file() and path.suffix.lower() in FIXTURE_SUFFIXES:
             fixture_files.add(path)
         elif path.is_dir():
-            fixture_files.update(path.rglob("*.eml"))
+            fixture_files.update(
+                file
+                for file in path.rglob("*")
+                if file.is_file() and file.suffix.lower() in FIXTURE_SUFFIXES
+            )
+        else:
+            violations.append(
+                FixtureViolation(path, 1, "unscanned-path", "Invalid fixture path")
+            )
     return sorted(
-        violation
-        for fixture_file in sorted(fixture_files)
-        for violation in scan_fixture_file(fixture_file)
+        violations
+        + [
+            violation
+            for fixture_file in sorted(fixture_files)
+            for violation in scan_fixture_file(fixture_file)
+        ]
     )
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Reject personal or active data in committed email fixtures."
+        description="Reject unsafe data in committed email, HTML, and JSON fixtures."
     )
     parser.add_argument("paths", nargs="+", type=Path)
     args = parser.parse_args()

@@ -29,7 +29,7 @@ jobs:
       - run: ruff format --check .
       - run: ruff check .
       - run: mypy src
-      - name: Reject unsafe email fixtures
+      - name: Reject unsafe email and parser fixtures
         run: >-
           python -m homefinder.fixture_safety
           data/email_examples tests/fixtures

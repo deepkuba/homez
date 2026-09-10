@@ -615,6 +615,35 @@ Commit: `feat(parsing): persist versioned partial page results`
 
 ### Slice 6 — Independent portal parser packages and fixture safety
 
+Status: repository implementation complete (2026-09-10); releases remain inactive.
+
+Evidence:
+- The named architecture test was added first and failed because all four
+  source parser packages lacked independent parser modules. It now follows each
+  implementation's imports and permits only the shared typed result contract;
+  no parser imports another parser, a shared extraction helper, transport, or
+  persistence code.
+- Gratka, Morizon, Otodom, and OLX each own their complete bounded extraction
+  implementation. Positive baseline detection selects exactly one handler;
+  absent, malformed, or multiply matching evidence returns `unknown-variant`
+  with all eleven core fields explicitly missing and no invented candidates.
+- Each known baseline test uses a manually authored, minimal synthetic HTML
+  fixture and verifies normalized facts, candidate provenance, parser release,
+  and derived price per square metre. No fixture was generated from captured
+  source content and no parser performs a network request or browser fallback.
+- The fail-closed fixture scanner now discovers `.eml`, `.html`, and `.json`,
+  bounds inputs to 2 MiB, requires strict UTF-8 and complete parsing, and rejects
+  active URLs, contacts, secrets, executable markup, duplicate JSON keys, and
+  malformed or trailing content. CI and local development use the same command.
+- Focused parser, architecture, and scanner suite: **29 passed**. Full
+  non-PostgreSQL suite: **469 passed**; full PostgreSQL suite: **15 passed**.
+  Ruff format/lint, strict mypy, fixture scanning, YAML lint, dependency audit,
+  and existing NAS/VPS Compose models pass.
+- Diff review found no real portal content or calls, credentials, unsafe fixture
+  data, debug code, cross-parser helper reuse, report changes, activation, or
+  deployment action. Slice 7 must still build immutable releases and enforce
+  audited portal-specific activation before any parser can consume live work.
+
 First failing test:
 `tests/architecture/test_scraping_boundaries.py::test_portal_parsers_share_no_extraction_code`.
 

@@ -1,1 +1,5 @@
-"""ADR 0017 parsers/gratka boundary; disabled until explicit cutover."""
+"""Independent gratka parser package."""
+
+from .parser import GratkaPageParser
+
+__all__ = ["GratkaPageParser"]

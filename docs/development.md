@@ -31,8 +31,8 @@ visible address is replaced. Check fixtures locally with:
   data/email_examples tests/fixtures
 ```
 
-CI runs the same check. New parser fixtures should be regenerated as minimal
-contract examples rather than redacting a full delivered message. Follow the
+CI runs the same check. New parser fixtures must be manually authored as minimal
+synthetic contract examples; do not generate them from captured pages. Follow the
 [alert fixture cleanup runbook](security/alert-fixture-cleanup.md) if unsafe mail
 has entered Git history.
 

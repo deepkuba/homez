@@ -1,1 +1,5 @@
-"""ADR 0017 parsers/morizon boundary; disabled until explicit cutover."""
+"""Independent morizon parser package."""
+
+from .parser import MorizonPageParser
+
+__all__ = ["MorizonPageParser"]

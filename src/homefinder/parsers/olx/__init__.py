@@ -1,1 +1,5 @@
-"""ADR 0017 parsers/olx boundary; disabled until explicit cutover."""
+"""Independent OLX production parser boundary."""
+
+from homefinder.parsers.olx.parser import OlxPageParser
+
+__all__ = ["OlxPageParser"]
