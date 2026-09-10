@@ -118,6 +118,35 @@ def test_accepted_partial_capture_resumes_unchanged_fact_flow(scrape_queue):
         assert '"price_per_sqm_minor":12500' in result.facts_json
 
 
+def test_effective_result_excludes_revoked_release(scrape_queue):
+    from homefinder.catalog.orm import ParserReleaseRecord
+    from homefinder.parsers.contracts import PageFacts, ParserResult
+    from homefinder.scrape_queue.contracts import CaptureOutcome
+
+    repo, snapshots, workers, sessions = scrape_queue
+    repo.enqueue(source="gratka", snapshot_id=snapshots[0], now=NOW)
+    lease = repo.claim(workers[0], now=NOW)
+    capture = uuid4()
+    repo.complete(
+        workers[0],
+        lease,
+        CaptureOutcome(
+            capture,
+            NOW,
+            "c" * 64,
+            10,
+            ParserResult(capture, "a" * 64, "synthetic", (), (), facts=PageFacts()),
+        ),
+        now=NOW,
+    )
+    assert repo.outcome(source="gratka", snapshot_id=snapshots[0], now=NOW)
+
+    with sessions.begin() as session:
+        session.get(ParserReleaseRecord, "a" * 64).status = "revoked"
+
+    assert repo.outcome(source="gratka", snapshot_id=snapshots[0], now=NOW) is None
+
+
 def test_enabled_queue_does_not_require_legacy_scraper_endpoint(monkeypatch, tmp_path):
     from homefinder import cli
     from homefinder.config import Settings

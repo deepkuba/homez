@@ -21,6 +21,8 @@ from homefinder.catalog.orm import (
     ListingRecord,
     ListingSnapshotRecord,
     PageCaptureRecord,
+    ParserActivationAuditRecord,
+    ParserReleaseRecord,
     PortalParserActivationRecord,
     ProductionFieldCandidateRecord,
     ProductionParserResultRecord,
@@ -491,11 +493,40 @@ class ScrapeQueueRepository:
                     ScrapeTaskRecord,
                     ScrapeTaskRecord.id == ProductionParserResultRecord.task_id,
                 )
+                .join(
+                    ParserReleaseRecord,
+                    ParserReleaseRecord.release_hash
+                    == ProductionParserResultRecord.release_hash,
+                )
+                .outerjoin(
+                    ParserActivationAuditRecord,
+                    and_(
+                        ParserActivationAuditRecord.source == ScrapeTaskRecord.source,
+                        ParserActivationAuditRecord.release_hash
+                        == ProductionParserResultRecord.release_hash,
+                        ParserActivationAuditRecord.activation_epoch
+                        == ProductionParserResultRecord.activation_epoch,
+                    ),
+                )
+                .outerjoin(
+                    PortalParserActivationRecord,
+                    PortalParserActivationRecord.source == ScrapeTaskRecord.source,
+                )
                 .where(
                     ScrapeTaskRecord.source == source,
                     ScrapeTaskRecord.snapshot_id == snapshot_id,
                     ScrapeTaskRecord.state == "succeeded",
                     ProductionParserResultRecord.expires_at > now,
+                    ParserReleaseRecord.status != "revoked",
+                    or_(
+                        ParserActivationAuditRecord.id.is_not(None),
+                        and_(
+                            PortalParserActivationRecord.release_hash
+                            == ProductionParserResultRecord.release_hash,
+                            PortalParserActivationRecord.activation_epoch
+                            == ProductionParserResultRecord.activation_epoch,
+                        ),
+                    ),
                 )
                 .order_by(ScrapeTaskRecord.finished_at.desc())
                 .limit(1)

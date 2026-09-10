@@ -585,7 +585,7 @@ class PrimaryMarketManualTaskRecord(Base):
 
 
 class ParserReleaseRecord(Base):
-    """Identifier skeleton; activation and provenance arrive in Slice 7."""
+    """Immutable content-addressed parser build and lifecycle state."""
 
     __tablename__ = "parser_releases"
     __table_args__ = (
@@ -593,12 +593,26 @@ class ParserReleaseRecord(Base):
             "source IN ('gratka', 'morizon', 'otodom', 'olx')",
             name="ck_parser_release_source",
         ),
+        CheckConstraint(
+            "status IN ('draft', 'active', 'retired', 'revoked')",
+            name="ck_parser_release_status",
+        ),
         UniqueConstraint("source", "release_hash"),
     )
 
     release_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
     source: Mapped[str] = mapped_column(String(20))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    parser_version: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    git_commit: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    parser_content_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    configuration_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    dependency_lock_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    deployable_digest: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    qualifying_benchmark_run: Mapped[str | None] = mapped_column(
+        String(100), nullable=True
+    )
+    status: Mapped[str] = mapped_column(String(12), server_default="draft")
 
 
 class PageCaptureRecord(Base):
@@ -690,6 +704,33 @@ class PortalParserActivationRecord(Base):
     source: Mapped[str] = mapped_column(String(20), primary_key=True)
     release_hash: Mapped[str] = mapped_column(String(64))
     activation_epoch: Mapped[int]
+
+
+class ParserActivationAuditRecord(Base):
+    """Append-only manual parser pointer change evidence."""
+
+    __tablename__ = "parser_activation_audits"
+    __table_args__ = (
+        CheckConstraint(
+            "action IN ('activate', 'rollback')", name="ck_parser_activation_action"
+        ),
+        CheckConstraint("activation_epoch > 0", name="ck_parser_audit_epoch"),
+        UniqueConstraint("source", "activation_epoch"),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True)
+    source: Mapped[str] = mapped_column(String(20))
+    activation_epoch: Mapped[int]
+    previous_release_hash: Mapped[str | None] = mapped_column(
+        ForeignKey("parser_releases.release_hash"), nullable=True
+    )
+    release_hash: Mapped[str] = mapped_column(
+        ForeignKey("parser_releases.release_hash")
+    )
+    action: Mapped[str] = mapped_column(String(12))
+    actor: Mapped[str] = mapped_column(String(200))
+    compared_metrics: Mapped[str] = mapped_column(String(1000))
+    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
 class ScraperWorkerRecord(Base):

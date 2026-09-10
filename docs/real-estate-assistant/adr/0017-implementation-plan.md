@@ -661,6 +661,41 @@ Commit: `refactor(parsing): isolate portal parser pipelines`
 
 ### Slice 7 — Immutable releases, activation, and rollback
 
+Status: repository implementation complete (2026-09-10); activation remains gated.
+
+Evidence:
+- Added the named PostgreSQL capability-gate test first. Its initial run skipped
+  because no disposable database was configured; after provisioning an isolated
+  PostgreSQL 14/PostGIS 3.2 instance under `/tmp`, it passed without TCP access
+  or production credentials.
+- Release identities are SHA-256 addresses of portal, parser bytes,
+  portal-specific configuration, and dependency lock content. Immutable records
+  retain the human version, Git commit, deployable digest, creation time, and a
+  qualifying benchmark reference; conflicting provenance cannot reuse a hash.
+- Manual activation locks a stable portal row and its pointer, checks the
+  expected epoch, and requires fresh healthy NAS and VPS workers to advertise
+  both candidate and rollback hashes. Each successful portal-only pointer change
+  increments the epoch and writes bounded actor, comparison, and time evidence.
+- Normal promotion retires the prior release. Manual rollback restores the
+  recorded prior hash without a benchmark and revokes the withdrawn release;
+  immutable result history is unchanged. Effective reads accept audited retired
+  history, exclude revoked releases, and require the result's release/epoch to
+  have been active.
+- Focused fake-backed activation, rollback, epoch, queue, and effective-read
+  suite: **18 passed**. PostgreSQL capability and simultaneous-activation tests:
+  **2 passed**. Full non-PostgreSQL suite: **473 passed**; full PostgreSQL suite:
+  **17 passed**. PostgreSQL and SQLite migration upgrade/downgrade checks and
+  PostgreSQL schema drift pass.
+- Ruff format/lint, strict mypy, fixture scanning, YAML lint, dependency audit,
+  and existing base/NAS/VPS Compose models pass. Diff review found no secrets,
+  raw source content, external calls, activation command, release seed, report
+  change, or production deployment.
+- The qualifying benchmark identifier is a fake-backed, fail-closed contract in
+  this slice. Slice 8 must persist and evaluate real offline benchmark evidence,
+  and Slice 9 must expose authorized manual maintenance controls. Until both
+  exist and a separately authorized deployment supplies immutable images and
+  worker capability heartbeats, no production parser release can be activated.
+
 First failing test:
 `tests/integration/test_parser_activation_postgres.py::test_activation_rejects_missing_worker_capability`.
 
