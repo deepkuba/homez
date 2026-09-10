@@ -3,6 +3,7 @@ from decimal import Decimal
 from uuid import UUID
 
 from sqlalchemy import (
+    BigInteger,
     CheckConstraint,
     DateTime,
     ForeignKey,
@@ -13,6 +14,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    false,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -667,6 +669,10 @@ class ScrapeTaskRecord(Base):
     lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     lease_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    direct_fallback_pending: Mapped[bool] = mapped_column(server_default=false())
+    direct_fallback_available_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
 
 
 class PortalParserActivationRecord(Base):
@@ -722,7 +728,11 @@ class ScrapeAttemptRecord(Base):
     outcome: Mapped[str | None] = mapped_column(String(20))
     code: Mapped[str | None] = mapped_column(String(40))
     route_class: Mapped[str] = mapped_column(String(12), server_default="unassigned")
-    route_id: Mapped[UUID | None]
+    route_id: Mapped[str | None] = mapped_column(String(64))
+    proxy_reserved_bytes: Mapped[int] = mapped_column(server_default="0")
+    network_attempt_count: Mapped[int] = mapped_column(server_default="0")
+    network_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    classification: Mapped[str | None] = mapped_column(String(40))
     response_bytes: Mapped[int] = mapped_column(server_default="0")
 
 
@@ -756,3 +766,66 @@ class ProductionFieldCandidateRecord(Base):
     value_json: Mapped[str] = mapped_column(Text)
     origin: Mapped[str] = mapped_column(String(80))
     locator: Mapped[str] = mapped_column(String(200))
+
+
+class SourceRuntimeStateRecord(Base):
+    __tablename__ = "source_runtime_state"
+
+    source: Mapped[str] = mapped_column(String(20), primary_key=True)
+    policy_version: Mapped[str] = mapped_column(String(80))
+    day_key: Mapped[str] = mapped_column(String(10))
+    attempt_count: Mapped[int] = mapped_column(server_default="0")
+    success_count: Mapped[int] = mapped_column(server_default="0")
+    next_start_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    cooldown_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    direct_denial_count: Mapped[int] = mapped_column(server_default="0")
+
+
+class ProxyUsageLedgerRecord(Base):
+    __tablename__ = "proxy_usage_ledger"
+
+    billing_cycle: Mapped[str] = mapped_column(String(7), primary_key=True)
+    allocated_bytes: Mapped[int] = mapped_column(BigInteger, server_default="0")
+    transferred_bytes: Mapped[int] = mapped_column(BigInteger, server_default="0")
+
+
+class ProxyRouteHealthRecord(Base):
+    __tablename__ = "proxy_route_health"
+
+    route_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    healthy: Mapped[bool]
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class ProxySourceQuarantineRecord(Base):
+    __tablename__ = "proxy_source_quarantine"
+
+    route_id: Mapped[str] = mapped_column(
+        ForeignKey("proxy_route_health.route_id"), primary_key=True
+    )
+    source: Mapped[str] = mapped_column(String(20), primary_key=True)
+    until: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class RedirectHandoffRecord(Base):
+    """Validated cross-source target awaiting its own portal pipeline."""
+
+    __tablename__ = "redirect_handoffs"
+    __table_args__ = (
+        UniqueConstraint("source_task_id", "target_source", "target_listing_id"),
+        CheckConstraint(
+            "source != target_source", name="ck_redirect_handoff_cross_source"
+        ),
+        CheckConstraint(
+            "state IN ('pending', 'enqueued')", name="ck_redirect_handoff_state"
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True)
+    source_task_id: Mapped[UUID] = mapped_column(ForeignKey("scrape_tasks.id"))
+    source: Mapped[str] = mapped_column(String(20))
+    target_source: Mapped[str] = mapped_column(String(20), index=True)
+    target_listing_id: Mapped[str] = mapped_column(String(255))
+    canonical_url: Mapped[str] = mapped_column(String(2048))
+    state: Mapped[str] = mapped_column(String(20), server_default="pending")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))

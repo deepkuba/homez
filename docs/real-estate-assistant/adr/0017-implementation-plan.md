@@ -452,6 +452,43 @@ Commit: `feat(scraping): run NAS and VPS workers concurrently`
 
 ### Slice 3 — Central pacing, denial policy, and Webshare routing
 
+Status: repository implementation complete (2026-09-10); routing remains dark.
+
+Evidence:
+- The named PostgreSQL test was added first and initially skipped without a
+  configured test database; the focused fake-backed contract then failed on the
+  absent source-budget module. The final named test uses two concurrent worker
+  transactions and proves one aggregate portal start plus a locked proxy-byte
+  reservation at the 900 MB ceiling.
+- Central source rows serialize the minimum interval, daily attempt/success
+  counts, and monotonic cooldown. Proxy allocation uses opaque healthy route
+  identifiers, source-specific quarantine, compressed-byte reservations, a
+  monthly ledger, and direct continuation after the 900 MB usable allowance.
+- Deterministic denial tests cover positively identified proxy infrastructure
+  failure, ambiguous response handling, a single direct fallback, the 15-minute
+  proxy-denial delay, longer `Retry-After`, and direct-denial cooldowns of 6, 12,
+  and 24 hours. A deferred direct fallback releases its worker lease and is
+  consumed once by a later fenced queue attempt under normal source pacing.
+- Validated cross-source listing redirects complete the source attempt and
+  create one durable, idempotent target-portal handoff. The handoff contains no
+  response bytes and cannot invoke either portal parser.
+- Virtual-clock evidence covers all four portals: 1,000 successful responses fit
+  in one day at one aggregate start per 10 seconds, and the 43rd completion in a
+  45-task burst occurs at 430 seconds. A 15-second profile is explicitly marked
+  unavailable rather than dropping work.
+- Focused unit suite: **71 passed**. Full non-PostgreSQL suite: **389 passed**;
+  full PostgreSQL suite: **14 passed** against a fresh disposable PostgreSQL
+  14.24 database on a private Unix socket. Migration downgrade/upgrade and
+  Alembic drift checks pass on PostgreSQL; SQLite migration regression tests pass.
+- Ruff format/lint, strict mypy, architecture tests, dependency audit, and the
+  NAS/VPS concurrent Compose profiles pass with synthetic coordinates and an
+  immutable fake digest. Compose v2 and immutable-image builds remain CI gates.
+- Diff/security review found no credentials, endpoint details, raw source
+  content, portal/Webshare requests, unsafe fixtures, debug code, report changes,
+  or production activation. Existing user edits outside this plan remain
+  unstaged. Slice 4 may add NAS-only encrypted diagnostics; no network worker is
+  enabled until all later rollout gates are satisfied.
+
 First failing test:
 `tests/integration/test_source_budget_postgres.py::test_two_workers_share_one_portal_budget`.
 

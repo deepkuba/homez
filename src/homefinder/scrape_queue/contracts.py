@@ -1,7 +1,7 @@
 """Production work identity, deliberately excluding candidate benchmarks."""
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 from enum import Enum
 from uuid import UUID
 
@@ -106,3 +106,45 @@ class CaptureOutcome:
     content_hash: str
     size_bytes: int
     result: ParserResult = field(repr=False)
+
+
+@dataclass(frozen=True)
+class SourceBudgetPolicy:
+    minimum_interval: timedelta
+    daily_attempt_limit: int
+    daily_success_limit: int
+    policy_version: str = "reference-v1"
+
+    def __post_init__(self) -> None:
+        if (
+            self.minimum_interval <= timedelta(0)
+            or self.minimum_interval > timedelta(hours=1)
+            or not 1 <= self.daily_success_limit <= self.daily_attempt_limit <= 100_000
+            or not self.policy_version
+            or len(self.policy_version) > 80
+        ):
+            raise ValueError("invalid source budget policy")
+
+
+@dataclass(frozen=True)
+class NetworkPermit:
+    granted: bool
+    available_at: datetime
+    route_class: str | None = None
+    route_id: str | None = field(default=None, repr=False)
+
+
+@dataclass(frozen=True)
+class SourceBudgetSnapshot:
+    source: str
+    attempt_count: int
+    success_count: int
+    cooldown_until: datetime | None
+
+
+@dataclass(frozen=True)
+class ProxyBudgetSnapshot:
+    allocated_bytes: int
+    transferred_bytes: int
+    usable_limit_bytes: int = 900_000_000
+    reserved_allowance_bytes: int = 100_000_000
