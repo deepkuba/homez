@@ -89,8 +89,14 @@ class ScrapeWorker:
         thread.start()
         try:
             try:
+                permit = self.coordinator.reserve_start(lease)
+            except Exception:
+                return True
+            if not permit.granted:
+                return True
+            try:
                 page = self.transport.fetch(
-                    FetchRequest(self.source, lease.canonical_url)
+                    FetchRequest(self.source, lease.canonical_url, permit.route_id)
                 )
             except Exception:
                 if not lost.is_set():

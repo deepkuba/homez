@@ -1,7 +1,7 @@
 import hashlib
 import json
 from dataclasses import asdict
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from fastapi import FastAPI
@@ -14,8 +14,14 @@ PREFIX = "/internal/scrape/v1"
 @pytest.fixture
 def coordinator(scrape_queue, tmp_path):
     from homefinder.scrape_queue.api import create_coordinator_router
+    from homefinder.scrape_queue.budget import SourceBudgetRepository
+    from homefinder.scrape_queue.contracts import SourceBudgetPolicy
 
-    repo, snapshots, workers, _ = scrape_queue
+    repo, snapshots, workers, sessions = scrape_queue
+    budget = SourceBudgetRepository(
+        sessions,
+        policies={"gratka": SourceBudgetPolicy(timedelta(seconds=10), 1000, 1000)},
+    )
     credentials = tmp_path / "synthetic-worker-identities.json"
     credentials.write_text(
         json.dumps(
@@ -33,7 +39,9 @@ def coordinator(scrape_queue, tmp_path):
     credentials.chmod(0o600)
     app = FastAPI()
     app.include_router(
-        create_coordinator_router(repo, credentials_file=credentials, clock=lambda: NOW)
+        create_coordinator_router(
+            repo, budget=budget, credentials_file=credentials, clock=lambda: NOW
+        )
     )
     with TestClient(app) as client:
         yield client, repo, snapshots, credentials
@@ -82,6 +90,20 @@ def test_coordinator_enforces_identity_and_rejects_raw_content(coordinator):
         ).status_code
         == 409
     )
+
+
+def test_coordinator_reserves_central_network_start(coordinator):
+    client, repo, snapshots, _ = coordinator
+    repo.enqueue(source="gratka", snapshot_id=snapshots[0], now=NOW)
+    lease = client.post(PREFIX + "/claim", headers=auth(), json={}).json()
+
+    response = client.post(
+        PREFIX + "/network/reserve", headers=auth(), json={"lease": lease}
+    )
+
+    assert response.status_code == 200
+    assert response.json()["granted"] is True
+    assert response.json()["route_class"] == "direct"
 
 
 def test_coordinator_bounds_payload_and_fails_closed_on_missing_auth(coordinator):

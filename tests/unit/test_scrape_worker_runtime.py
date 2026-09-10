@@ -32,6 +32,7 @@ class Coordinator:
         self.completed = []
         self.failures = []
         self.registrations = []
+        self.reservations = []
 
     def register(self, releases, healthy=True):
         self.registrations.append((releases, healthy))
@@ -39,6 +40,12 @@ class Coordinator:
     def claim(self):
         self.claims += 1
         return self.leased if self.claims == 1 else None
+
+    def reserve_start(self, job):
+        from homefinder.scrape_queue.contracts import NetworkPermit
+
+        self.reservations.append(job)
+        return NetworkPermit(True, NOW, "direct")
 
     def heartbeat(self, job):
         self.renewed.set()
@@ -49,6 +56,45 @@ class Coordinator:
 
     def fail(self, job, code):
         self.failures.append(code)
+
+
+def test_worker_requires_central_network_permit_before_fetch():
+    from homefinder.parsers.contracts import PageFacts, PageInput, ParserResult
+    from homefinder.scrape_queue.contracts import NetworkPermit
+    from homefinder.scraper.worker import ScrapeWorker
+
+    coordinator = Coordinator()
+    coordinator.reserve_start = lambda job: NetworkPermit(
+        True, NOW, "proxy", "opaque-route-a"
+    )
+    requests = []
+
+    class Transport:
+        def fetch(self, request):
+            requests.append(request)
+            return PageInput(uuid4(), NOW, b"synthetic")
+
+    class Parser:
+        def parse(self, page):
+            return ParserResult(
+                page.capture_id,
+                "a" * 64,
+                "synthetic",
+                (),
+                (),
+                facts=PageFacts(title="Synthetic"),
+            )
+
+    ScrapeWorker(
+        source="gratka",
+        coordinator=coordinator,
+        transport=Transport(),
+        parsers={"a" * 64: Parser()},
+        stop=Event(),
+        clock=lambda: NOW,
+    ).run_once()
+
+    assert requests[0].route_id == "opaque-route-a"
 
 
 def test_worker_heartbeats_during_fetch_and_drains_on_shutdown():

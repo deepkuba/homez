@@ -54,6 +54,11 @@ def test_both_deployments_complete_shared_queue_work(scrape_queue):
         def claim(self):
             return repo.claim(self.identity, now=NOW)
 
+        def reserve_start(self, lease):
+            from homefinder.scrape_queue.contracts import NetworkPermit
+
+            return NetworkPermit(True, NOW, "direct")
+
         def heartbeat(self, lease):
             return repo.heartbeat(self.identity, lease, now=NOW)
 

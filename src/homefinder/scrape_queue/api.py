@@ -23,6 +23,7 @@ from homefinder.parsers.contracts import (
     Portal,
     ResolvedField,
 )
+from homefinder.scrape_queue.budget import SourceBudgetRepository
 from homefinder.scrape_queue.contracts import (
     CaptureOutcome,
     LostLease,
@@ -154,6 +155,7 @@ class CompletePayload(LeaseMutation):
 def create_coordinator_router(
     repository: ScrapeQueueRepository,
     *,
+    budget: SourceBudgetRepository | None = None,
     credentials_file: Path,
     clock: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
 ) -> APIRouter:
@@ -240,6 +242,16 @@ def create_coordinator_router(
         payload = await bounded_payload(request, LeaseMutation)
         return await execute(
             lambda: repository.heartbeat(worker, payload.lease.lease(), now=clock())
+        )
+
+    @router.post("/network/reserve")
+    async def reserve_network_start(request: Request) -> JSONResponse:
+        worker = authorize(request)
+        payload = await bounded_payload(request, LeaseMutation)
+        if budget is None:
+            raise HTTPException(503, "source budget configuration unavailable")
+        return await execute(
+            lambda: budget.reserve_start(worker, payload.lease.lease(), now=clock())
         )
 
     @router.post("/succeed")

@@ -70,6 +70,11 @@ def test_vps_streams_failure_bytes_without_local_persistence(
         def claim(self):
             return leased
 
+        def reserve_start(self, lease):
+            from homefinder.scrape_queue.contracts import NetworkPermit
+
+            return NetworkPermit(True, now, "direct")
+
         def heartbeat(self, lease):
             return lease
 

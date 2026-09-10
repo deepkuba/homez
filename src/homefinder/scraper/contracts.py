@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from typing import Protocol
 
 from homefinder.parsers.contracts import PageInput, Portal
-from homefinder.scrape_queue.contracts import CaptureOutcome, ScrapeLease
+from homefinder.scrape_queue.contracts import CaptureOutcome, NetworkPermit, ScrapeLease
 
 
 @dataclass(frozen=True)
@@ -22,6 +22,8 @@ class CoordinatorClient(Protocol):
     def register(self, releases: tuple[str, ...], healthy: bool = True) -> None: ...
 
     def claim(self) -> ScrapeLease | None: ...
+
+    def reserve_start(self, lease: ScrapeLease) -> NetworkPermit: ...
 
     def heartbeat(self, lease: ScrapeLease) -> ScrapeLease: ...
 

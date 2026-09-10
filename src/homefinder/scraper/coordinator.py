@@ -13,6 +13,7 @@ from pydantic import TypeAdapter
 from homefinder.scrape_queue.contracts import (
     CaptureOutcome,
     LostLease,
+    NetworkPermit,
     ScrapeLease,
     WorkerIdentity,
 )
@@ -21,6 +22,7 @@ from homefinder.sources.gmail import read_secret_text
 ControlRequest = Callable[[str, dict[str, object], str], bytes]
 LEASE = TypeAdapter(ScrapeLease)
 OUTCOME = TypeAdapter(CaptureOutcome)
+PERMIT = TypeAdapter(NetworkPermit)
 MAX_CONTROL_BYTES = 128_000
 
 
@@ -132,6 +134,15 @@ class HttpCoordinatorClient:
             return LEASE.validate_json(raw)
         except ValueError:
             raise CoordinatorUnavailable("invalid coordinator lease") from None
+
+    def reserve_start(self, lease: ScrapeLease) -> NetworkPermit:
+        raw = self._call(
+            "network/reserve", {"lease": LEASE.dump_python(lease, mode="json")}
+        )
+        try:
+            return PERMIT.validate_json(raw)
+        except ValueError:
+            raise CoordinatorUnavailable("invalid coordinator permit") from None
 
     def complete(self, lease: ScrapeLease, outcome: CaptureOutcome) -> None:
         self._call(

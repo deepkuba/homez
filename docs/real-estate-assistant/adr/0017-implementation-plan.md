@@ -1049,6 +1049,33 @@ fixtures, variants, benchmark, reviews, activation evidence, and rollback target
 Code and synthetic-fixture work may proceed without deployment; raw benchmark
 evidence and activation remain explicit production gates.
 
+### Pre-cutover prerequisite — central network permits
+
+Status: fake-backed repository contract complete (2026-09-10); production policy
+and outcome-accounting wiring remain deployment gates.
+
+Evidence:
+- Added `test_worker_requires_central_network_permit_before_fetch` first and
+  confirmed that the worker incorrectly fetched with no central reservation.
+  The worker now requests a permit after claiming and before invoking transport;
+  a coordinator error or denied permit produces no portal request, and only the
+  granted opaque route identifier crosses into the transport contract.
+- Added focused client and private API tests for the bounded
+  `/internal/scrape/v1/network/reserve` round trip. The API authorizes the
+  source-scoped worker and delegates to the transactional `SourceBudgetRepository`.
+  With no configured budget repository it returns `503`, keeping the live path
+  fail closed.
+- Focused worker/client/API suite: **32 passed**. Ruff formatting/lint and strict
+  mypy pass. No parser was packaged, no HTTP connector was enabled, and no live
+  portal, proxy, secret, deployment, activation, or recovery action occurred.
+- Before deployment, load reviewed policies into the web coordinator, expose
+  bounded outcome classification/accounting, configure the Webshare billing
+  anchor, and prove denial/direct-fallback behavior through the complete worker
+  round trip. The current worker remains intentionally unable to consume live
+  work because `main()` advertises no releases and uses the disabled transport.
+
+Commit: `feat(scraping): require central permits before worker fetches`
+
 ### Slice 16 — Cutover and legacy removal
 
 First failing test:

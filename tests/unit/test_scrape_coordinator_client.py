@@ -24,6 +24,50 @@ def test_client_uses_bounded_private_control_requests(tmp_path):
     assert calls[1][1] == {"task_classes": ["live", "network_recovery"]}
 
 
+def test_client_requests_central_network_permit(tmp_path):
+    from datetime import datetime, timedelta, timezone
+    from uuid import uuid4
+
+    from homefinder.scrape_queue.contracts import ScrapeLease, TaskClass
+    from homefinder.scraper.coordinator import HttpCoordinatorClient
+
+    token = tmp_path / "synthetic-token"
+    token.write_text("synthetic-worker-token")
+    token.chmod(0o600)
+    calls = []
+
+    def request(path, payload, bearer):
+        calls.append((path, payload, bearer))
+        return json.dumps(
+            {
+                "granted": True,
+                "available_at": "2026-09-10T00:00:00Z",
+                "route_class": "proxy",
+                "route_id": "opaque-route-a",
+            }
+        ).encode()
+
+    lease = ScrapeLease(
+        uuid4(),
+        "gratka",
+        uuid4(),
+        "https://gratka.pl/nieruchomosci/synthetic/ob/10000001",
+        TaskClass.LIVE,
+        "a" * 64,
+        1,
+        uuid4(),
+        datetime(2026, 9, 10, tzinfo=timezone.utc) + timedelta(seconds=60),
+        1,
+    )
+    permit = HttpCoordinatorClient(
+        "http://web:8000", token, request=request
+    ).reserve_start(lease)
+
+    assert permit.route_id == "opaque-route-a"
+    assert calls[0][0] == "/internal/scrape/v1/network/reserve"
+    assert "canonical_url" in calls[0][1]["lease"]
+
+
 @pytest.mark.parametrize(
     "endpoint",
     [
