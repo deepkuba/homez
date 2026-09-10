@@ -14,7 +14,9 @@ from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from homefinder.catalog.orm import (
+    BenchmarkRunRecord,
     ListingRecord,
+    ParserReleaseRecord,
     SourceRecord,
     WorkflowJobAttemptRecord,
     WorkflowJobRecord,
@@ -146,6 +148,37 @@ def render_scraper_error_dashboard(
         else _encode_cursor(_aware(now), _max_uuid(), 2**31 - 1)
     )
     next_cursor = page.next_cursor or ""
+    with sessions() as session:
+        versions = session.scalars(
+            select(ParserReleaseRecord).order_by(
+                ParserReleaseRecord.source, ParserReleaseRecord.created_at.desc()
+            )
+        ).all()
+        quality = session.scalars(
+            select(BenchmarkRunRecord).order_by(BenchmarkRunRecord.created_at.desc())
+        ).all()
+    version_rows = (
+        "".join(
+            "<tr><td>"
+            + escape(item.source)
+            + "</td><td><code>"
+            + escape(item.release_hash[:12])
+            + "</code></td><td>"
+            + escape(item.status)
+            + "</td></tr>"
+            for item in versions
+        )
+        or "<tr><td colspan=3>Brak wersji.</td></tr>"
+    )
+    quality_rows = (
+        "".join(
+            f"<tr><td>{escape(item.source)}</td><td>{item.processed_count}/"
+            f"{item.total_count}</td><td>"
+            f"{'eligible' if item.eligible else 'blocked'}</td></tr>"
+            for item in quality
+        )
+        or "<tr><td colspan=3>Brak benchmarków.</td></tr>"
+    )
     return (
         "<!doctype html><html lang=pl><meta charset=utf-8>"
         "<meta name=viewport content='width=device-width'>"
@@ -163,6 +196,9 @@ def render_scraper_error_dashboard(
         ".6rem;margin:.8rem 0;padding:.4rem}td{border:0;padding:.3rem}}</style>"
         "<body><main><p><a href='/feedback/queue'>← Kolejka</a> · "
         "<a href='/feedback/offers'>Oferty</a></p><header><div><h1>Błędy scraperów</h1>"
+        "<nav aria-label='Parser operations'><strong>Live errors</strong> · "
+        "<a href='#parser-quality'>Parser quality</a> · "
+        "<a href='#parser-versions'>Parser versions</a></nav>"
         "<p class=meta>Najnowsze błędy są na górze. Historia jest ładowana na żądanie."
         "</p></div><p id=stream-state class=live>● Strumień aktywny</p></header>"
         "<table><thead><tr><th>Czas</th><th>Portal</th><th>Etap</th><th>Próba</th>"
@@ -170,6 +206,13 @@ def render_scraper_error_dashboard(
         f"<tbody id=error-rows>{rows}</tbody></table>"
         f"<button id=load-more data-before='{escape(next_cursor, quote=True)}'"
         f"{' hidden' if not next_cursor else ''}>Załaduj starsze</button>"
+        "<section id=parser-quality><h2>Parser quality</h2><table><thead><tr>"
+        "<th>Portal</th><th>Coverage</th><th>Eligibility</th></tr></thead><tbody>"
+        f"{quality_rows}</tbody></table></section>"
+        "<section id=parser-versions><h2>Parser versions</h2><p>Compare exactly "
+        "two retained versions: active baseline and selected candidate.</p><table>"
+        "<thead><tr><th>Portal</th><th>Release</th><th>Status</th></tr></thead>"
+        f"<tbody>{version_rows}</tbody></table></section>"
         f"<script nonce='{escape(nonce, quote=True)}'>"
         "const rows=document.getElementById('error-rows');"
         "const button=document.getElementById('load-more');"

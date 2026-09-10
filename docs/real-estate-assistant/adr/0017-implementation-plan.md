@@ -772,6 +772,34 @@ Commit: `feat(parsing): benchmark candidates offline on NAS`
 
 ### Slice 9 — Maintenance REST API, thin CLI, and dashboard
 
+Status: repository implementation complete (2026-09-10); deployment remains gated.
+
+Evidence:
+- Added the named exact-scope test first and confirmed the maintenance module was
+  missing. Raw grants now bind one subject, artifact identifier, approved review
+  purpose, and timezone-aware expiry; mismatched identifiers/purposes and the
+  exact 30-minute boundary fail closed.
+- A forced-command issuer accepts only `homez-artifacts issue-token`, signs the
+  bounded grant, and rejects tampering. The private API exposes bounded paginated
+  safe metadata/cluster endpoints and exactly one artifact text stream. It has no
+  raw listing, wildcard, directory, bulk, fixture-generation, fact-write, parser
+  activation, or recovery-release operation.
+- Raw streaming audits before reading, returns `no-store` and `nosniff`, never
+  logs response bytes, and renders as escaped/plain text rather than executable
+  markup. Authorization errors do not expose token or raw values.
+- The `homez-artifacts` entry point supports only metadata and one exact raw
+  stream, requires HTTPS and a token file, requests `no-store`, streams bounded
+  chunks without a cache, and has no production mutation command.
+- The existing private scraper dashboard retains its live SSE and load-more
+  behavior and adds Live errors, Parser quality, and Parser versions views. Safe
+  database values are escaped and the versions view states the two-version
+  active/candidate comparison boundary; no report presentation changed.
+- Focused authorization, API, CLI, XSS, SSE, pagination, and dashboard suite:
+  **8 passed**. Strict mypy and focused Ruff checks pass. Production SSH forced-
+  command installation, signing-key secret, artifact-service wiring, audit sink,
+  and authorized operator identities remain deployment gates; no token was
+  issued and no raw artifact was read in this slice.
+
 First failing test:
 `tests/unit/test_parser_maintenance_auth.py::test_raw_read_requires_exact_artifact_scope_and_purpose`.
 
