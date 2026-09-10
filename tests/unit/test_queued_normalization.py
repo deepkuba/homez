@@ -100,7 +100,11 @@ def test_accepted_partial_capture_resumes_unchanged_fact_flow(scrape_queue):
                 "synthetic",
                 (),
                 ("rooms",),
-                facts=PageFacts(title="Synthetic page title", price_minor=200),
+                facts=PageFacts(
+                    title="Synthetic page title",
+                    price_minor=200,
+                    price_per_sqm_minor=12_500,
+                ),
             ),
         ),
         now=NOW,
@@ -111,6 +115,7 @@ def test_accepted_partial_capture_resumes_unchanged_fact_flow(scrape_queue):
         assert '"purchase_price_minor":200' in result.facts_json
         assert '"title":"Synthetic page title"' in result.facts_json
         assert '"rooms":null' in result.facts_json
+        assert '"price_per_sqm_minor":12500' in result.facts_json
 
 
 def test_enabled_queue_does_not_require_legacy_scraper_endpoint(monkeypatch, tmp_path):

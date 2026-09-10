@@ -56,6 +56,7 @@ class PropertyFacts:
     monthly_admin_fee_minor: int | None = None
     heating_type: str | None = None
     admin_fee_includes_heating: bool | None = None
+    price_per_sqm_minor: int | None = None
     score_confidence: Decimal = Decimal("1")
     last_presented_at: datetime | None = None
     materially_changed: bool = False

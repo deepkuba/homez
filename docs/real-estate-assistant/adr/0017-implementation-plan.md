@@ -568,6 +568,35 @@ Commit: `feat(artifacts): retain bounded parser diagnostics on NAS`
 
 ### Slice 5 — Versioned production parser-result boundary
 
+Status: repository implementation complete (2026-09-10); parser rollout is gated.
+
+Evidence:
+- The named PostgreSQL test was added first and failed on the absent resolved
+  production-field model. It now proves that a partial result retains all
+  normalized candidates, semantic origins, structural locators, parser release,
+  explicit value/unknown/ambiguous outcomes, and its diagnostic linkage.
+- Production results, field candidates, and resolved outcomes are immutable rows
+  linked to the page capture. Equal-authority disagreement stays ambiguous;
+  summary and attribute evidence outrank description, and all page evidence
+  outranks email fallback without deleting the lower-priority candidate.
+- Resolution declares the eleven core extraction fields plus the separate
+  `price_per_sqm_minor` derived fact. Explicit page price-per-square-metre wins;
+  a page price/area fallback rounds once to minor units, and differences above
+  100 PLN/m² produce a consistency signal while retaining the explicit value.
+- Configurable low/normal/high bands validate strictly ordered currency-specific
+  boundaries; missing facts remain `unknown`. No market boundary is hard-coded.
+  Candidate fact sets include a newly available price-per-square-metre value,
+  while existing payloads and report serialization remain unchanged when it is
+  absent. Partial facts continue through the existing workflow.
+- Focused parser/result/workflow suite: **31 passed**. Full non-PostgreSQL suite:
+  **447 passed**; full PostgreSQL suite: **15 passed**. PostgreSQL migration
+  downgrade/upgrade and Alembic drift checks, Ruff format/lint, strict mypy,
+  architecture tests, fixture scanning, and dependency audit pass.
+- Diff review found no raw source content, external requests, credentials,
+  unsafe fixtures, debug code, activation controls, or report presentation,
+  ranking, scoring, section, or delivery changes. Parser implementation and
+  rollout remain gated on Slices 6–7.
+
 First failing test:
 `tests/integration/test_parser_results_postgres.py::test_partial_page_result_keeps_field_provenance`.
 

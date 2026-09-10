@@ -768,6 +768,24 @@ class ProductionFieldCandidateRecord(Base):
     locator: Mapped[str] = mapped_column(String(200))
 
 
+class ProductionResolvedFieldRecord(Base):
+    __tablename__ = "production_resolved_fields"
+    __table_args__ = (
+        CheckConstraint(
+            "state IN ('value', 'unknown', 'ambiguous')",
+            name="ck_production_resolved_field_state",
+        ),
+    )
+
+    result_id: Mapped[UUID] = mapped_column(
+        ForeignKey("production_parser_results.id"), primary_key=True
+    )
+    name: Mapped[str] = mapped_column(String(50), primary_key=True)
+    state: Mapped[str] = mapped_column(String(12))
+    value_json: Mapped[str | None] = mapped_column(Text)
+    selected_origin: Mapped[str | None] = mapped_column(String(80))
+
+
 class DiagnosticRunRecord(Base):
     """Safe central metadata; encrypted object keys and bytes remain on NAS."""
 

@@ -53,6 +53,7 @@ class ScrapedListing:
     monthly_admin_fee_minor: int | None = None
     heating_type: str | None = None
     admin_fee_includes_heating: bool | None = None
+    price_per_sqm_minor: int | None = None
 
     def as_json(self) -> dict[str, object]:
         return {
@@ -70,6 +71,7 @@ class ScrapedListing:
             "monthly_admin_fee_minor": self.monthly_admin_fee_minor,
             "heating_type": self.heating_type,
             "admin_fee_includes_heating": self.admin_fee_includes_heating,
+            "price_per_sqm_minor": self.price_per_sqm_minor,
         }
 
     @classmethod
@@ -81,6 +83,7 @@ class ScrapedListing:
             rooms_value = payload.get("rooms")
             admin_fee_value = payload.get("monthly_admin_fee_minor")
             heating_included_value = payload.get("admin_fee_includes_heating")
+            price_per_sqm_value = payload.get("price_per_sqm_minor")
             description = _optional_text(payload.get("description"), 20_000) or ""
             inferred_fee, inferred_heating, inferred_inclusion = (
                 extract_recurring_cost_facts(description)
@@ -122,6 +125,11 @@ class ScrapedListing:
                     if heating_included_value is not None
                     else inferred_inclusion
                 ),
+                price_per_sqm_minor=(
+                    _json_int(price_per_sqm_value)
+                    if price_per_sqm_value is not None
+                    else None
+                ),
             )
         except (KeyError, TypeError, ValueError, InvalidOperation) as error:
             raise PageScrapeError("scraper response is invalid") from error
@@ -142,6 +150,10 @@ class ScrapedListing:
             and result.monthly_admin_fee_minor <= 0
             or result.monthly_admin_fee_minor is not None
             and result.monthly_admin_fee_minor > 10_000_000
+            or result.price_per_sqm_minor is not None
+            and result.price_per_sqm_minor <= 0
+            or result.price_per_sqm_minor is not None
+            and result.price_per_sqm_minor > 10_000_000_000
         ):
             raise PageScrapeError("scraper response contains invalid numeric values")
         if result.availability not in {"active", "unavailable", "unknown"}:

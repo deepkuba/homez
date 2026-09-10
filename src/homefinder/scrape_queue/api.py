@@ -15,7 +15,14 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError
 from starlette.concurrency import run_in_threadpool
 
-from homefinder.parsers.contracts import FieldCandidate, PageFacts, ParserResult, Portal
+from homefinder.parsers.contracts import (
+    FieldCandidate,
+    FieldState,
+    PageFacts,
+    ParserResult,
+    Portal,
+    ResolvedField,
+)
 from homefinder.scrape_queue.contracts import (
     CaptureOutcome,
     LostLease,
@@ -90,6 +97,16 @@ class CandidatePayload(Payload):
     release_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
 
 
+class ResolvedFieldPayload(Payload):
+    name: str = Field(pattern=r"^[a-z_]{1,50}$")
+    state: FieldState
+    value: str | int | bool | None = Field(default=None, repr=False)
+    selected_origin: str | None = Field(default=None, max_length=80)
+
+    def field(self) -> ResolvedField:
+        return ResolvedField(self.name, self.state, self.value, self.selected_origin)
+
+
 class ResultPayload(Payload):
     capture_id: UUID
     release_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
@@ -97,6 +114,7 @@ class ResultPayload(Payload):
     candidates: tuple[CandidatePayload, ...] = Field(max_length=64, repr=False)
     missing_fields: tuple[str, ...] = Field(max_length=32)
     facts: PageFacts
+    fields: tuple[ResolvedFieldPayload, ...] = Field(default=(), max_length=12)
 
     def result(self) -> ParserResult:
         return ParserResult(
@@ -106,6 +124,7 @@ class ResultPayload(Payload):
             tuple(FieldCandidate(**item.model_dump()) for item in self.candidates),
             self.missing_fields,
             facts=self.facts,
+            fields=tuple(item.field() for item in self.fields),
         )
 
 

@@ -24,12 +24,22 @@ from homefinder.catalog.orm import (
     PortalParserActivationRecord,
     ProductionFieldCandidateRecord,
     ProductionParserResultRecord,
+    ProductionResolvedFieldRecord,
     ScrapeAttemptRecord,
     ScraperWorkerRecord,
     ScrapeTaskRecord,
     SourceRecord,
 )
-from homefinder.parsers.contracts import FieldCandidate, PageFacts, ParserResult, Portal
+from homefinder.parsers.contracts import (
+    DECLARED_FIELDS,
+    FieldCandidate,
+    FieldState,
+    PageFacts,
+    ParserResult,
+    Portal,
+    ResolvedField,
+    resolve_fields,
+)
 from homefinder.scrape_queue.contracts import (
     CaptureOutcome,
     LostLease,
@@ -292,6 +302,7 @@ class ScrapeQueueRepository:
         require_aware(now)
         require_aware(outcome.fetched_at)
         result = outcome.result
+        fields = result.fields or resolve_fields(result.candidates)
         if (
             lease.task_class not in {TaskClass.LIVE, TaskClass.NETWORK_RECOVERY}
             or not 0 < outcome.size_bytes <= 2_000_000
@@ -301,6 +312,15 @@ class ScrapeQueueRepository:
             or outcome.fetched_at > now
             or len(result.candidates) > 64
             or len(result.missing_fields) > 32
+            or len(fields) != len(DECLARED_FIELDS)
+            or tuple(field.name for field in fields) != DECLARED_FIELDS
+            or any(
+                field.state is FieldState.VALUE
+                and field.selected_origin is None
+                or field.state is not FieldState.VALUE
+                and (field.value is not None or field.selected_origin is not None)
+                for field in fields
+            )
             or re.fullmatch(r"[a-zA-Z0-9_-]{1,80}", result.variant) is None
             or any(
                 re.fullmatch(r"[a-z_]{1,50}", name) is None
@@ -424,6 +444,20 @@ class ScrapeQueueRepository:
                         locator=candidate.locator,
                     )
                 )
+            for field in fields:
+                session.add(
+                    ProductionResolvedFieldRecord(
+                        result_id=result_id,
+                        name=field.name,
+                        state=field.state.value,
+                        value_json=(
+                            json.dumps(field.value)
+                            if field.state is FieldState.VALUE
+                            else None
+                        ),
+                        selected_origin=field.selected_origin,
+                    )
+                )
             attempt = session.get(ScrapeAttemptRecord, (task.id, task.attempt_count))
             if attempt is None:
                 raise LostLease("lease attempt missing")
@@ -473,6 +507,42 @@ class ScrapeQueueRepository:
                 .where(ProductionFieldCandidateRecord.result_id == row.id)
                 .order_by(ProductionFieldCandidateRecord.position)
             ).all()
+            fields = session.scalars(
+                select(ProductionResolvedFieldRecord)
+                .where(ProductionResolvedFieldRecord.result_id == row.id)
+                .order_by(ProductionResolvedFieldRecord.name)
+            ).all()
+            by_name = {field.name: field for field in fields}
+            if len(by_name) != len(DECLARED_FIELDS):
+                return ParserResult(
+                    row.capture_id,
+                    row.release_hash,
+                    row.variant,
+                    tuple(
+                        FieldCandidate(
+                            item.name,
+                            json.loads(item.value_json),
+                            item.origin,
+                            item.locator,
+                            row.release_hash,
+                        )
+                        for item in candidates
+                    ),
+                    tuple(json.loads(row.missing_fields_json)),
+                    facts=PageFacts.model_validate_json(row.facts_json),
+                    fields=resolve_fields(
+                        tuple(
+                            FieldCandidate(
+                                item.name,
+                                json.loads(item.value_json),
+                                item.origin,
+                                item.locator,
+                                row.release_hash,
+                            )
+                            for item in candidates
+                        )
+                    ),
+                )
             return ParserResult(
                 row.capture_id,
                 row.release_hash,
@@ -489,6 +559,19 @@ class ScrapeQueueRepository:
                 ),
                 tuple(json.loads(row.missing_fields_json)),
                 facts=PageFacts.model_validate_json(row.facts_json),
+                fields=tuple(
+                    ResolvedField(
+                        name,
+                        FieldState(by_name[name].state),
+                        (
+                            json.loads(value_json)
+                            if (value_json := by_name[name].value_json) is not None
+                            else None
+                        ),
+                        by_name[name].selected_origin,
+                    )
+                    for name in DECLARED_FIELDS
+                ),
             )
 
     def task_state(self, task_id: UUID) -> str | None:

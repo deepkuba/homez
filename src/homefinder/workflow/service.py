@@ -326,6 +326,8 @@ class WorkflowService:
                         else None
                     ),
                 }
+                if scraped is not None and scraped.price_per_sqm_minor is not None:
+                    payload["price_per_sqm_minor"] = scraped.price_per_sqm_minor
                 encoded = _canonical(payload)
                 facts_hash = _sha(encoded)
                 material = _sha(
@@ -344,6 +346,11 @@ class WorkflowService:
                                 "monthly_admin_fee_minor",
                                 "heating_type",
                                 "admin_fee_includes_heating",
+                            )
+                            + (
+                                ("price_per_sqm_minor",)
+                                if "price_per_sqm_minor" in payload
+                                else ()
                             )
                         }
                     )
@@ -412,6 +419,7 @@ class WorkflowService:
             monthly_admin_fee_minor=facts.monthly_admin_fee_minor,
             heating_type=facts.heating_type,
             admin_fee_includes_heating=facts.admin_fee_includes_heating,
+            price_per_sqm_minor=facts.price_per_sqm_minor,
         )
 
     def _scrape_listing(
@@ -701,6 +709,11 @@ def _facts_from_payload(
             heating_included
             if isinstance(heating_included, bool)
             else inferred_inclusion
+        ),
+        price_per_sqm_minor=(
+            _object_int(payload.get("price_per_sqm_minor"), "price_per_sqm_minor")
+            if payload.get("price_per_sqm_minor") is not None
+            else None
         ),
         transaction_type=TransactionType.PURCHASE,
         market_type=None,
