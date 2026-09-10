@@ -69,31 +69,49 @@ class GratkaPageParser:
             document.feed(page.body.decode("utf-8", errors="strict"))
         except (UnicodeError, ValueError, RecursionError):
             return self._unknown(page)
-        matches: list[tuple[int, dict[str, Any]]] = []
+        matches: list[tuple[int, str, dict[str, Any]]] = []
         for index, block in enumerate(document.blocks):
             try:
                 value = json.loads(block)
             except (ValueError, RecursionError):
                 continue
-            # A positive typed top-level residence is the baseline marker. Nested
-            # recommendations and unrelated Product nodes are never candidates.
-            if isinstance(value, dict) and value.get("@type") in ("Apartment", "House"):
-                matches.append((index, value))
+            # Only explicit top-level or @graph residence nodes are candidates.
+            # Recommendations and arbitrary nested Product nodes stay excluded.
+            nodes: list[tuple[str, object]] = [("", value)]
+            if isinstance(value, list):
+                nodes = [(f"[{position}]", node) for position, node in enumerate(value)]
+            elif isinstance(value, dict) and isinstance(value.get("@graph"), list):
+                nodes = [
+                    (f".@graph[{position}]", node)
+                    for position, node in enumerate(value["@graph"])
+                ]
+            for path, node in nodes:
+                if isinstance(node, dict) and node.get("@type") in (
+                    "Apartment",
+                    "House",
+                ):
+                    matches.append((index, path, node))
         if len(matches) != 1:
             return self._unknown(page)
-        index, listing = matches[0]
-        offers = _mapping(listing.get("offers"))
+        index, node_path, listing = matches[0]
+        offers_value = listing.get("offers")
+        offers = (
+            _mapping(offers_value[0])
+            if isinstance(offers_value, list) and len(offers_value) == 1
+            else _mapping(offers_value)
+        )
+        offer_path = "offers[0]" if isinstance(offers_value, list) else "offers"
         raw: dict[str, tuple[str, object, str]] = {
             "title": ("title", listing.get("name"), "name"),
             "price": (
                 "price_minor",
                 _money(offers.get("price"), 100_000_000_000_000),
-                "offers.price",
+                f"{offer_path}.price",
             ),
             "currency": (
                 "currency",
                 offers.get("priceCurrency"),
-                "offers.priceCurrency",
+                f"{offer_path}.priceCurrency",
             ),
             "locality": (
                 "location",
@@ -115,7 +133,7 @@ class GratkaPageParser:
                     "https://schema.org/OutOfStock": "unavailable",
                     "https://schema.org/SoldOut": "unavailable",
                 }.get(str(offers.get("availability"))),
-                "offers.availability",
+                f"{offer_path}.availability",
             ),
             "monthly_admin_fee": (
                 "monthly_admin_fee_minor",
@@ -159,7 +177,7 @@ class GratkaPageParser:
                     name,
                     value,
                     "page",
-                    f"script[type=application/ld+json][{index}].{locator}",
+                    f"script[type=application/ld+json][{index}]{node_path}.{locator}",
                     self.release_hash,
                 )
             )
@@ -189,7 +207,7 @@ class GratkaPageParser:
         return ParserResult(
             page.capture_id,
             self.release_hash,
-            "jsonld-residence-v1",
+            "jsonld-graph-residence-v2" if node_path else "jsonld-residence-v1",
             tuple(candidates),
             tuple(name for name in DECLARED_FIELDS[:11] if name not in present),
             PageFacts(**facts),

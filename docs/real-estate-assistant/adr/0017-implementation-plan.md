@@ -932,6 +932,30 @@ Commit: `feat(operations): enforce parser data retention`
 
 ### Slice 12 — Gratka vertical parser release
 
+Status: safe synthetic implementation complete (2026-09-10); production evidence and activation remain gated.
+
+Evidence:
+- Added the named Gratka variant test first and confirmed the existing parser
+  returned `unknown-variant` for the manually authored synthetic graph shape.
+- Gratka alone now accepts exactly one explicitly typed `Apartment` or `House`
+  from a top-level JSON-LD object, a top-level array, or a bounded `@graph`.
+  It accepts a single-object offers array, retains structural provenance, and
+  continues to reject multiple residences, unrelated nested recommendations,
+  malformed JSON, invalid values, and responses above the shared 2 MB contract.
+- The new fixture is minimal, synthetic, uses only a reserved domain, and passes
+  the same fail-closed fixture scanner used in CI. No captured portal bytes,
+  listing content, automatic fixture generation, browser, or network request
+  entered the repository.
+- The synthetic offline eligibility test proves the changed Gratka variant
+  cannot qualify an immutable release without raw artifact coverage. The active
+  parser pointer was not changed and no backlog or network recovery was released.
+- Focused Gratka and architecture suite: **27 passed**. Full non-PostgreSQL
+  suite: **497 passed**. Ruff format/lint, strict mypy, dependency audit, and
+  fixture scanning pass.
+- The separately authorized 25-newest discovery canary, guarded artifact review,
+  persisted active/candidate benchmark, difference-signature review, immutable
+  deployable image, and manual Gratka activation remain production gates.
+
 First failing test:
 `tests/unit/parsers/gratka/test_variants.py::test_reviewed_gratka_fixture_extracts_core_contract`.
 
