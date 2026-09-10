@@ -849,6 +849,150 @@ class DiagnosticRunRecord(Base):
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
+class BenchmarkManifestRecord(Base):
+    """Frozen non-production corpus; never a production scrape task."""
+
+    __tablename__ = "benchmark_manifests"
+    __table_args__ = (
+        CheckConstraint(
+            "data_classification = 'non-production'",
+            name="ck_benchmark_manifest_non_production",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    source: Mapped[str] = mapped_column(String(20))
+    active_release_hash: Mapped[str] = mapped_column(
+        ForeignKey("parser_releases.release_hash")
+    )
+    candidate_release_hash: Mapped[str] = mapped_column(
+        ForeignKey("parser_releases.release_hash")
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    selection_policy: Mapped[str] = mapped_column(String(80))
+    entries_json: Mapped[str] = mapped_column(Text)
+    strata_json: Mapped[str] = mapped_column(Text)
+    data_classification: Mapped[str] = mapped_column(
+        String(20), server_default="non-production"
+    )
+
+
+class BenchmarkRunRecord(Base):
+    __tablename__ = "benchmark_runs"
+    __table_args__ = (
+        CheckConstraint(
+            "state IN ('pending', 'running', 'complete', 'failed')",
+            name="ck_benchmark_run_state",
+        ),
+        CheckConstraint(
+            "data_classification = 'non-production'",
+            name="ck_benchmark_run_non_production",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(100), primary_key=True)
+    manifest_id: Mapped[str] = mapped_column(ForeignKey("benchmark_manifests.id"))
+    source: Mapped[str] = mapped_column(String(20))
+    candidate_release_hash: Mapped[str] = mapped_column(
+        ForeignKey("parser_releases.release_hash")
+    )
+    state: Mapped[str] = mapped_column(String(12))
+    processed_count: Mapped[int] = mapped_column(server_default="0")
+    total_count: Mapped[int]
+    unavailable_count: Mapped[int] = mapped_column(server_default="0")
+    eligible: Mapped[bool] = mapped_column(server_default=false())
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    data_classification: Mapped[str] = mapped_column(
+        String(20), server_default="non-production"
+    )
+
+
+class BenchmarkResultRecord(Base):
+    """Detailed non-production output, physically separate from production results."""
+
+    __tablename__ = "benchmark_results"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('compared', 'benchmark-input-unavailable')",
+            name="ck_benchmark_result_status",
+        ),
+        CheckConstraint(
+            "data_classification = 'non-production'",
+            name="ck_benchmark_result_non_production",
+        ),
+    )
+
+    run_id: Mapped[str] = mapped_column(
+        ForeignKey("benchmark_runs.id"), primary_key=True
+    )
+    entry_id: Mapped[str] = mapped_column(String(100), primary_key=True)
+    input_kind: Mapped[str] = mapped_column(String(12))
+    artifact_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    variant: Mapped[str] = mapped_column(String(80))
+    status: Mapped[str] = mapped_column(String(30))
+    active_result_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    candidate_result_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    data_classification: Mapped[str] = mapped_column(
+        String(20), server_default="non-production"
+    )
+
+
+class BenchmarkFieldCandidateRecord(Base):
+    __tablename__ = "benchmark_field_candidates"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["run_id", "entry_id"],
+            ["benchmark_results.run_id", "benchmark_results.entry_id"],
+        ),
+        CheckConstraint(
+            "data_classification = 'non-production'",
+            name="ck_benchmark_candidate_non_production",
+        ),
+    )
+
+    run_id: Mapped[str] = mapped_column(String(100), primary_key=True)
+    entry_id: Mapped[str] = mapped_column(String(100), primary_key=True)
+    parser_side: Mapped[str] = mapped_column(String(12), primary_key=True)
+    position: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(80))
+    value_json: Mapped[str] = mapped_column(Text)
+    origin: Mapped[str] = mapped_column(String(80))
+    locator: Mapped[str] = mapped_column(String(200))
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    data_classification: Mapped[str] = mapped_column(
+        String(20), server_default="non-production"
+    )
+
+
+class BenchmarkDifferenceReviewRecord(Base):
+    __tablename__ = "benchmark_difference_reviews"
+    __table_args__ = (
+        CheckConstraint(
+            "state IN ('unreviewed', 'correct', 'incorrect', 'ambiguous')",
+            name="ck_benchmark_review_state",
+        ),
+        CheckConstraint(
+            "data_classification = 'non-production'",
+            name="ck_benchmark_review_non_production",
+        ),
+    )
+
+    run_id: Mapped[str] = mapped_column(
+        ForeignKey("benchmark_runs.id"), primary_key=True
+    )
+    signature: Mapped[str] = mapped_column(String(64), primary_key=True)
+    state: Mapped[str] = mapped_column(String(12))
+    candidate_adds_value: Mapped[bool]
+    reason: Mapped[str] = mapped_column(String(1000))
+    artifact_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    data_classification: Mapped[str] = mapped_column(
+        String(20), server_default="non-production"
+    )
+
+
 class SourceRuntimeStateRecord(Base):
     __tablename__ = "source_runtime_state"
 

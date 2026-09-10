@@ -32,7 +32,7 @@ def _build(source="gratka", version="v2", marker="2") -> ReleaseBuild:
 
 def test_release_hash_changes_with_any_build_input(scrape_queue) -> None:
     _queue, _snapshots, _workers, sessions = scrape_queue
-    releases = ParserReleaseRepository(sessions)
+    releases = ParserReleaseRepository(sessions, eligibility=lambda *args: True)
 
     first = releases.register(_build(), now=NOW)
     same = releases.register(_build(), now=NOW)
@@ -44,7 +44,7 @@ def test_release_hash_changes_with_any_build_input(scrape_queue) -> None:
 
 def test_activation_is_audited_and_rollback_is_portal_isolated(scrape_queue) -> None:
     queue, _snapshots, workers, sessions = scrape_queue
-    releases = ParserReleaseRepository(sessions)
+    releases = ParserReleaseRepository(sessions, eligibility=lambda *args: True)
     candidate = releases.register(_build(), now=NOW)
     old_hash = "a" * 64
     for worker in workers:
@@ -100,7 +100,7 @@ def test_activation_is_audited_and_rollback_is_portal_isolated(scrape_queue) -> 
 
 def test_activation_rejects_stale_epoch_without_changing_pointer(scrape_queue) -> None:
     queue, _snapshots, workers, sessions = scrape_queue
-    releases = ParserReleaseRepository(sessions)
+    releases = ParserReleaseRepository(sessions, eligibility=lambda *args: True)
     candidate = releases.register(_build(), now=NOW)
     for worker in workers:
         queue.register_worker(

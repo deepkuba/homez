@@ -3,6 +3,7 @@
 import hashlib
 import json
 import re
+from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta
 from uuid import uuid4
@@ -10,6 +11,7 @@ from uuid import uuid4
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
+from homefinder.benchmark_repository import persisted_eligibility
 from homefinder.catalog.orm import (
     ParserActivationAuditRecord,
     ParserReleaseRecord,
@@ -85,9 +87,12 @@ class ParserReleaseRepository:
         sessions: sessionmaker[Session],
         *,
         worker_health_seconds: int = 90,
+        eligibility: Callable[[Session, Portal, str, str, datetime], bool]
+        | None = None,
     ) -> None:
         self._sessions = sessions
         self._worker_health = timedelta(seconds=worker_health_seconds)
+        self._eligibility = eligibility or persisted_eligibility
 
     def register(self, build: ReleaseBuild, *, now: datetime) -> RegisteredRelease:
         _aware(now)
@@ -201,8 +206,6 @@ class ParserReleaseRepository:
                 raise ActivationRejected("release does not belong to portal")
             if candidate.status == "revoked":
                 raise ActivationRejected("revoked release cannot be activated")
-            if action == "activate" and candidate.qualifying_benchmark_run is None:
-                raise ActivationRejected("release lacks qualifying benchmark evidence")
             required = {release_hash}
             if current_hash is not None:
                 required.add(current_hash)
@@ -224,6 +227,17 @@ class ParserReleaseRepository:
                 raise ActivationRejected(
                     "healthy NAS and VPS workers must advertise candidate and rollback"
                 )
+            if action == "activate" and (
+                candidate.qualifying_benchmark_run is None
+                or not self._eligibility(
+                    session,
+                    source,
+                    release_hash,
+                    candidate.qualifying_benchmark_run,
+                    now,
+                )
+            ):
+                raise ActivationRejected("release lacks eligible benchmark evidence")
             next_epoch = current_epoch + 1
             if pointer is None:
                 pointer = PortalParserActivationRecord(

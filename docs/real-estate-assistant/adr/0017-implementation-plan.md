@@ -712,6 +712,48 @@ Commit: `feat(parsing): add audited parser release activation`
 
 ### Slice 8 — Offline benchmark lane
 
+Status: safe repository contract complete (2026-09-10); NAS runtime deployment gated.
+
+Evidence:
+- Added the named isolation test first and confirmed its expected failure because
+  no benchmark worker existed. The worker now accepts only an injected bounded
+  input reader and two parser callables; the transitive architecture test proves
+  the benchmark package cannot import portal/network clients, production queue,
+  workflow, or catalog persistence.
+- Immutable manifests include all supplied synthetic fixture versions and use a
+  deterministic stratified round-robin sample of at most 1,000 deduplicated raw
+  artifacts. They record content hashes, active/candidate release hashes,
+  selection policy, and eligible/selected counts per variant/failure stratum.
+- Active and candidate parsers receive the identical `PageInput` bytes in
+  memory. Unreadable entries remain `benchmark-input-unavailable`, progress
+  reports processed/total/portal/variant/unavailable counts, and no input is
+  replaced or fetched from a portal.
+- Benchmark manifests, runs, detailed results, field candidates, and difference
+  reviews have dedicated tables and repository paths, physically separate from
+  production results and candidates. Detailed raw-derived values are encrypted
+  with a required 256-bit key and inherit artifact expiry; artifact deletion
+  erases ciphertext and candidates while retaining safe aggregate tombstones.
+- Activation now validates a persisted complete eligible run for the exact
+  portal and candidate hash. Eligibility requires live raw coverage for every
+  changed variant and blocks unavailable/expired inputs, incorrect or unreviewed
+  differences, and ambiguous differences that add a value. A changed build hash
+  cannot inherit another candidate's run.
+- Benchmark artifact reads now require both frozen-manifest membership and the
+  short-lived identity's exact artifact subset. Audit-before-read, no-cache
+  behavior, and in-memory response handling remain enforced.
+- Focused benchmark, artifact-auth, activation, and architecture suite:
+  **32 passed**. Full non-PostgreSQL suite: **481 passed**. Ruff format/lint,
+  strict mypy, fixture scanning, YAML lint, dependency audit, SQLite migration
+  upgrade/downgrade and schema drift, and existing Compose models pass.
+- A single-worker resource contract fixes one instance, 0.5 CPU, 256 MiB memory,
+  one database connection, low I/O weight, and positive nice priority. The NAS
+  Compose service remains a deployment gate because no authorized immutable
+  active/candidate image pair or short-lived manifest identity issuer exists.
+  Do not add a nonfunctional service or give it portal/proxy credentials; add
+  the runnable service only with those production inputs and explicit deployment
+  authorization. PostgreSQL migration/concurrency checks remain required in CI
+  because the disposable local PostGIS installation was unavailable on this run.
+
 First failing test:
 `tests/unit/test_benchmark_isolation.py::test_benchmark_worker_cannot_construct_network_transport`.
 

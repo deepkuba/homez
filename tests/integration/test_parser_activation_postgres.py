@@ -35,7 +35,7 @@ def test_activation_rejects_missing_worker_capability(scrape_queue) -> None:
     )
 
     _queue, _snapshots, _workers, sessions = scrape_queue
-    releases = ParserReleaseRepository(sessions)
+    releases = ParserReleaseRepository(sessions, eligibility=lambda *args: True)
     candidate = releases.register(
         _build("2"),
         now=NOW,
@@ -64,7 +64,7 @@ def test_concurrent_activation_commits_one_portal_pointer(scrape_queue) -> None:
     from homefinder.parser_releases import ActivationRejected, ParserReleaseRepository
 
     queue, _snapshots, workers, sessions = scrape_queue
-    releases = ParserReleaseRepository(sessions)
+    releases = ParserReleaseRepository(sessions, eligibility=lambda *args: True)
     candidates = [releases.register(_build(marker), now=NOW) for marker in ("6", "7")]
     supported = ("a" * 64, *(candidate.release_hash for candidate in candidates))
     for worker in workers:

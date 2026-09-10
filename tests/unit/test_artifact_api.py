@@ -39,7 +39,11 @@ def setup_api():
             artifact_ids=frozenset({"artifact-a", "missing"}),
         ),
         "benchmark": ArtifactIdentity(
-            "bench-1", "benchmark", NOW + timedelta(minutes=30), benchmark_id="run-1"
+            "bench-1",
+            "benchmark",
+            NOW + timedelta(minutes=30),
+            artifact_ids=frozenset({"artifact-a"}),
+            benchmark_id="run-1",
         ),
         "expired": ArtifactIdentity(
             "old", "maintenance", NOW, artifact_ids=frozenset({"artifact-a"})
@@ -153,7 +157,11 @@ def test_benchmark_manifest_is_frozen_at_app_creation():
     store = Store()
     manifests = {"run": {"artifact-a"}}
     identity = ArtifactIdentity(
-        "bench", "benchmark", NOW + timedelta(minutes=1), benchmark_id="run"
+        "bench",
+        "benchmark",
+        NOW + timedelta(minutes=1),
+        artifact_ids=frozenset({"artifact-a"}),
+        benchmark_id="run",
     )
     app = create_artifact_app(
         store,
@@ -164,6 +172,29 @@ def test_benchmark_manifest_is_frozen_at_app_creation():
     )
     manifests["run"].add("other")
     response = TestClient(app).get("/artifacts/other", headers=headers("token"))
+    assert response.status_code == 403
+    assert store.reads == []
+
+
+def test_benchmark_read_requires_exact_identity_and_manifest_scope():
+    store = Store()
+    identity = ArtifactIdentity(
+        "bench",
+        "benchmark",
+        NOW + timedelta(minutes=1),
+        artifact_ids=frozenset({"artifact-a"}),
+        benchmark_id="run",
+    )
+    app = create_artifact_app(
+        store,
+        credentials={"token": identity},
+        frozen_manifests={"run": frozenset({"artifact-a", "artifact-b"})},
+        audit=lambda event: None,
+        clock=lambda: NOW,
+    )
+
+    response = TestClient(app).get("/artifacts/artifact-b", headers=headers("token"))
+
     assert response.status_code == 403
     assert store.reads == []
 

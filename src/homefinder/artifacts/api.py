@@ -118,6 +118,7 @@ def create_artifact_app(
         ) or (
             identity.role == "benchmark"
             and identity.benchmark_id is not None
+            and artifact_id in identity.artifact_ids
             and artifact_id in manifests.get(identity.benchmark_id, frozenset())
         )
         if not allowed:
