@@ -33,6 +33,7 @@ class Coordinator:
         self.failures = []
         self.registrations = []
         self.reservations = []
+        self.deferrals = []
 
     def register(self, releases, healthy=True):
         self.registrations.append((releases, healthy))
@@ -46,6 +47,9 @@ class Coordinator:
 
         self.reservations.append(job)
         return NetworkPermit(True, NOW, "direct")
+
+    def defer(self, job, available_at, code):
+        self.deferrals.append((job, available_at, code))
 
     def heartbeat(self, job):
         self.renewed.set()
@@ -95,6 +99,32 @@ def test_worker_requires_central_network_permit_before_fetch():
     ).run_once()
 
     assert requests[0].route_id == "opaque-route-a"
+
+
+def test_worker_defers_denied_central_permit_without_fetch():
+    from homefinder.scrape_queue.contracts import NetworkPermit
+    from homefinder.scraper.worker import ScrapeWorker
+
+    coordinator = Coordinator()
+    available_at = NOW + timedelta(seconds=10)
+    coordinator.reserve_start = lambda job: NetworkPermit(False, available_at)
+
+    class Transport:
+        def fetch(self, request):
+            pytest.fail("denied central permit must not fetch")
+
+    ScrapeWorker(
+        source="gratka",
+        coordinator=coordinator,
+        transport=Transport(),
+        parsers={"a" * 64: object()},
+        stop=Event(),
+        clock=lambda: NOW,
+    ).run_once()
+
+    assert coordinator.deferrals == [
+        (coordinator.leased, available_at, "budget-exhausted")
+    ]
 
 
 def test_worker_heartbeats_during_fetch_and_drains_on_shutdown():

@@ -93,6 +93,10 @@ class ScrapeWorker:
             except Exception:
                 return True
             if not permit.granted:
+                with suppress(Exception):
+                    self.coordinator.defer(
+                        lease, permit.available_at, "budget-exhausted"
+                    )
                 return True
             try:
                 page = self.transport.fetch(

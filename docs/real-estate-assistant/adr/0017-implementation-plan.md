@@ -1060,12 +1060,15 @@ Evidence:
   The worker now requests a permit after claiming and before invoking transport;
   a coordinator error or denied permit produces no portal request, and only the
   granted opaque route identifier crosses into the transport contract.
+- A denied permit is returned through the existing fenced deferral endpoint at
+  the coordinator-selected `available_at`; it does not hold the lease until
+  expiry or busy-wait in the worker.
 - Added focused client and private API tests for the bounded
   `/internal/scrape/v1/network/reserve` round trip. The API authorizes the
   source-scoped worker and delegates to the transactional `SourceBudgetRepository`.
   With no configured budget repository it returns `503`, keeping the live path
   fail closed.
-- Focused worker/client/API suite: **32 passed**. Ruff formatting/lint and strict
+- Focused worker/client/API suite: **33 passed**. Ruff formatting/lint and strict
   mypy pass. No parser was packaged, no HTTP connector was enabled, and no live
   portal, proxy, secret, deployment, activation, or recovery action occurred.
 - Before deployment, load reviewed policies into the web coordinator, expose

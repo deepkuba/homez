@@ -1,6 +1,7 @@
 """Bounded transport contract; implementations must not persist response bytes."""
 
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Protocol
 
 from homefinder.parsers.contracts import PageInput, Portal
@@ -24,6 +25,8 @@ class CoordinatorClient(Protocol):
     def claim(self) -> ScrapeLease | None: ...
 
     def reserve_start(self, lease: ScrapeLease) -> NetworkPermit: ...
+
+    def defer(self, lease: ScrapeLease, available_at: datetime, code: str) -> None: ...
 
     def heartbeat(self, lease: ScrapeLease) -> ScrapeLease: ...
 

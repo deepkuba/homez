@@ -5,6 +5,7 @@ import ipaddress
 import json
 from collections.abc import Callable
 from contextlib import suppress
+from datetime import datetime
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -143,6 +144,16 @@ class HttpCoordinatorClient:
             return PERMIT.validate_json(raw)
         except ValueError:
             raise CoordinatorUnavailable("invalid coordinator permit") from None
+
+    def defer(self, lease: ScrapeLease, available_at: datetime, code: str) -> None:
+        self._call(
+            "defer",
+            {
+                "lease": LEASE.dump_python(lease, mode="json"),
+                "available_at": available_at.isoformat(),
+                "code": code,
+            },
+        )
 
     def complete(self, lease: ScrapeLease, outcome: CaptureOutcome) -> None:
         self._call(
