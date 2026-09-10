@@ -61,6 +61,27 @@ securely, receive a test failure notification, and review a successful restore.
 Keep app and database services on the private Compose network, deploy immutable
 image tags, and run migrations before starting the new app.
 
+## Production parser retention
+
+Run one bounded retention batch daily after migrations are current:
+
+```bash
+homefinder run-parser-retention --batch-size 500
+```
+
+The command deletes expired parser details in capture-time order, records any
+remaining expired backlog as unhealthy, measures the full database, and sends
+content-free operational alerts through the configured mail transport. Schedule
+only one instance. A failed run alerts immediately and then at most daily; the
+next successful run sends one recovery message. Review the aggregate retention
+state and oldest remaining capture before increasing the batch size.
+
+Each encrypted database backup now has a sibling `*.manifest.json` file. Keep it
+with the encrypted dump. Restore prints its backup date, oldest included parser
+capture, and the current live two-year cutoff before continuing. The warning
+does not delete backup data or block restore; backup pruning remains a manual
+operator decision.
+
 ## NAS artifact retention and backup boundary
 
 The optional artifact service stores encrypted diagnostic objects and their

@@ -167,6 +167,12 @@ docker compose --env-file .env -f infra/compose.yaml up --detach --wait
 docker compose --env-file .env -f infra/compose.yaml ps
 ```
 
+Before enabling the daily parser-retention schedule, run
+`homefinder run-parser-retention --batch-size 500` once with the approved
+operational recipient and confirm delivery of a synthetic test notification.
+Keep the encrypted backup and its `*.manifest.json` sidecar together during
+copy, inspection, and restore.
+
 The long-running processes handle `SIGTERM`, use interruptible waits, and write
 health heartbeats. Services start only after PostGIS is healthy and migration
 has completed successfully. Resource, PID, capability, filesystem, and restart

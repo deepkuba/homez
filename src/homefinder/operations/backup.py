@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import base64
+import json
 import os
 import subprocess
 from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from secrets import token_bytes
@@ -17,6 +19,14 @@ from homefinder.sources.gmail import TokenError, read_secret_text
 
 MAGIC = b"HOMEZ-BACKUP-1\0"
 Runner = Callable[..., subprocess.CompletedProcess[bytes]]
+
+
+@dataclass(frozen=True)
+class BackupRetentionWarning:
+    backup_created_at: datetime
+    oldest_production_fetched_at: datetime | None
+    live_retention_cutoff: datetime
+    blocks_restore: bool = False
 
 
 def _check_key(key: bytes) -> None:
@@ -40,8 +50,16 @@ def backup_database(
     *,
     database_url: str | None = None,
     runner: Runner = subprocess.run,
+    created_at: datetime | None = None,
+    oldest_production_fetched_at: datetime | None = None,
 ) -> Path:
     _check_key(key)
+    created = created_at or datetime.now(timezone.utc)
+    if created.utcoffset() is None or (
+        oldest_production_fetched_at is not None
+        and oldest_production_fetched_at.utcoffset() is None
+    ):
+        raise ValueError("backup manifest timestamps must be timezone-aware")
     if database_url is not None:
         command, environment = _postgres_command("pg_dump", database_url)
         result = runner(
@@ -63,6 +81,24 @@ def backup_database(
     os.chmod(temporary, 0o600)
     temporary.replace(destination)
     os.chmod(destination, 0o600)
+    manifest = {
+        "schema_version": 1,
+        "backup_created_at": created.isoformat(),
+        "oldest_production_fetched_at": (
+            oldest_production_fetched_at.isoformat()
+            if oldest_production_fetched_at is not None
+            else None
+        ),
+        "raw_artifacts_included": False,
+    }
+    manifest_path = _manifest_path(destination)
+    manifest_temporary = manifest_path.with_name(f".{manifest_path.name}.tmp")
+    manifest_temporary.write_text(
+        json.dumps(manifest, sort_keys=True), encoding="utf-8"
+    )
+    os.chmod(manifest_temporary, 0o600)
+    manifest_temporary.replace(manifest_path)
+    os.chmod(manifest_path, 0o600)
     return destination
 
 
@@ -82,7 +118,11 @@ def restore_database(
     *,
     database_url: str,
     runner: Runner = subprocess.run,
+    now: datetime | None = None,
+    warn: Callable[[BackupRetentionWarning], None] | None = None,
 ) -> None:
+    if warn is not None:
+        warn(inspect_backup_retention(path, now=now))
     dump = decrypt_backup(path, key)
     command, environment = _postgres_command("pg_restore", database_url)
     runner(
@@ -96,6 +136,36 @@ def restore_database(
         capture_output=True,
         check=True,
     )
+
+
+def inspect_backup_retention(
+    path: Path, *, now: datetime | None = None
+) -> BackupRetentionWarning:
+    inspected_at = now or datetime.now(timezone.utc)
+    if inspected_at.utcoffset() is None:
+        raise ValueError("inspection timestamp must be timezone-aware")
+    payload = json.loads(_manifest_path(path).read_text(encoding="utf-8"))
+    if (
+        payload.get("schema_version") != 1
+        or payload.get("raw_artifacts_included") is not False
+    ):
+        raise ValueError("invalid backup manifest")
+    created = datetime.fromisoformat(payload["backup_created_at"])
+    oldest_value = payload.get("oldest_production_fetched_at")
+    oldest = datetime.fromisoformat(oldest_value) if oldest_value is not None else None
+    if created.utcoffset() is None or (
+        oldest is not None and oldest.utcoffset() is None
+    ):
+        raise ValueError("invalid backup manifest timestamps")
+    try:
+        cutoff = inspected_at.replace(year=inspected_at.year - 2)
+    except ValueError:
+        cutoff = inspected_at.replace(year=inspected_at.year - 2, day=28)
+    return BackupRetentionWarning(created, oldest, cutoff)
+
+
+def _manifest_path(path: Path) -> Path:
+    return path.with_name(f"{path.name}.manifest.json")
 
 
 def _postgres_command(
@@ -130,5 +200,8 @@ def prune_backups(
         modified = datetime.fromtimestamp(path.stat().st_mtime, timezone.utc)
         if modified < cutoff:
             path.unlink()
+            manifest = _manifest_path(path)
+            if manifest.exists():
+                manifest.unlink()
             removed.append(path)
     return tuple(sorted(removed))

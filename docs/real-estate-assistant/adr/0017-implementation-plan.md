@@ -876,6 +876,43 @@ Commit: `feat(scraping): recover newest listings after activation`
 
 ### Slice 11 — Production retention, backup warnings, and alerts
 
+Status: repository implementation complete (2026-09-10); daily production scheduling and notification delivery remain deployment gates.
+
+Evidence:
+- Added the named PostgreSQL replay-retention test first; it skipped because no
+  disposable PostgreSQL URL was configured. The frozen-clock repository test
+  then failed on the absent retention module before implementation.
+- A bounded daily repository deletes production details in oldest-capture order
+  using the capture's `fetched_at`, never replay time. Newer captures remain
+  independent, and a content-free listing tombstone is created only after the
+  listing's final detailed parser result is removed. Explicit inactive evidence
+  is retained separately from stale eligibility.
+- Expired benchmark values and field candidates are erased independently from
+  production models while retaining only portal, variant, outcome, artifact
+  reference, and deletion time in a dedicated safe tombstone.
+- Each run persists its cutoff, bounded deletion and backlog counts, oldest
+  remaining capture, duration, health, and complete database size before and
+  after retention. PostgreSQL measurement uses decimal 10 GB boundaries and
+  bounded largest-relation metadata; SQLite supplies deterministic local tests.
+- Size notification state is independent per 10 GB boundary, resets its
+  below-boundary streak on a failed measurement, and re-arms only after seven
+  consecutive successful daily measurements below that boundary. Retention
+  failures alert immediately, remind no more than once per 24 hours, and emit
+  one recovery notification. Alert payloads contain bounded operational data
+  and no listing content.
+- Backups now receive a mode-0600 sidecar manifest with creation time, oldest
+  included production capture time, schema version, and an explicit raw-artifact
+  exclusion. Inspection and restore show the current two-year cutoff as a
+  non-blocking warning. Backup pruning remains an explicit operator command.
+- Focused retention, backup, benchmark, and recovery suite: **17 passed**, with
+  the named PostgreSQL test skipped locally. Full non-PostgreSQL suite: **495
+  passed**. Ruff format/lint, strict mypy, and SQLite migration upgrade,
+  downgrade, and schema-drift checks pass.
+- Running `run-parser-retention` or scheduling it daily, delivering a successful
+  test notification, and PostgreSQL migration/concurrency verification remain
+  deployment gates. No mail, backup, restore, purge, or infrastructure action
+  was run against production.
+
 First failing test:
 `tests/integration/test_production_retention_postgres.py::test_replay_does_not_extend_capture_retention`.
 

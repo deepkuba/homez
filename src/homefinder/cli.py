@@ -1,8 +1,11 @@
 import argparse
+import hashlib
 import json
+import sys
 from collections.abc import Callable, Sequence
 from datetime import datetime, timedelta, timezone
 from functools import partial
+from html import escape
 from pathlib import Path
 from threading import Event
 from uuid import UUID
@@ -14,7 +17,13 @@ from sqlalchemy.orm import Session, sessionmaker
 from homefinder.application.gmail_labels import GmailLabelManager
 from homefinder.application.ingest_alert import AlertIngestionService
 from homefinder.application.poll_gmail import GmailPollingService, PollResult
-from homefinder.catalog.orm import Base, ReportDraftRecord, ReportItemRecord
+from homefinder.catalog.orm import (
+    Base,
+    PageCaptureRecord,
+    ProductionParserResultRecord,
+    ReportDraftRecord,
+    ReportItemRecord,
+)
 from homefinder.catalog.repository import SqlAlchemyCatalogRepository
 from homefinder.config import Environment, Settings
 from homefinder.digest.delivery import (
@@ -25,10 +34,15 @@ from homefinder.digest.delivery import (
 )
 from homefinder.digest.feedback import SqlAlchemyFeedbackService, private_feedback_url
 from homefinder.operations.backup import (
+    BackupRetentionWarning,
     backup_database,
     load_backup_key,
     prune_backups,
     restore_database,
+)
+from homefinder.operations.retention import (
+    OperationalAlert,
+    ProductionRetentionRepository,
 )
 from homefinder.parser_recovery import ParserRecoveryRepository, RecoveryBatch
 from homefinder.runtime import (
@@ -163,11 +177,43 @@ def _parser() -> argparse.ArgumentParser:
     recovery.add_argument("--batch", required=True, choices=("50", "150", "remainder"))
     recovery.add_argument("--execute", action="store_true")
     recovery.add_argument("--actor")
+    retention = commands.add_parser(
+        "run-parser-retention", help="run one bounded production retention batch"
+    )
+    retention.add_argument("--batch-size", type=int, default=500)
     return parser
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
+    if args.command == "run-parser-retention":
+        settings = Settings()
+        if settings.report_recipient_file is None:
+            raise SystemExit("operational alert recipient secret file is required")
+        recipient = read_secret_text(settings.report_recipient_file)
+        transport = _mail_transport(settings)
+
+        def notify(alert: OperationalAlert) -> None:
+            identity = hashlib.sha256(
+                f"{alert.kind}:{alert.occurred_at.isoformat()}:{alert.safe_detail}".encode()
+            ).hexdigest()
+            transport.send(
+                recipient=recipient,
+                subject=f"Homez operation: {alert.kind}",
+                html_body=f"<p>{escape(alert.safe_detail)}</p>",
+                text_body=alert.safe_detail,
+                idempotency_key=f"operation-{identity}",
+            )
+
+        engine = create_engine(settings.database_url.get_secret_value())
+        try:
+            retention_result = ProductionRetentionRepository(
+                sessionmaker(engine, expire_on_commit=False), notify=notify
+            ).run_daily(now=datetime.now(timezone.utc), batch_size=args.batch_size)
+            print(json.dumps(retention_result.__dict__, default=str, sort_keys=True))
+        finally:
+            engine.dispose()
+        return 0
     if args.command == "release-parser-recovery":
         settings = Settings()
         engine = create_engine(settings.database_url.get_secret_value())
@@ -218,18 +264,49 @@ def main(argv: Sequence[str] | None = None) -> int:
         key = load_backup_key(settings.backup_key_file)
         database_url = settings.database_url.get_secret_value()
     if args.command == "backup":
+        engine = create_engine(database_url)
+        try:
+            with Session(engine) as session:
+                oldest = session.scalar(
+                    select(PageCaptureRecord.fetched_at)
+                    .join(
+                        ProductionParserResultRecord,
+                        ProductionParserResultRecord.capture_id == PageCaptureRecord.id,
+                    )
+                    .order_by(PageCaptureRecord.fetched_at)
+                    .limit(1)
+                )
+        finally:
+            engine.dispose()
         backup_database(
             None,
             args.destination,
             key,
             database_url=database_url,
+            oldest_production_fetched_at=oldest,
         )
         return 0
     if args.command == "restore":
+
+        def show_retention_warning(warning: BackupRetentionWarning) -> None:
+            oldest = (
+                warning.oldest_production_fetched_at.isoformat()
+                if warning.oldest_production_fetched_at
+                else "none"
+            )
+            print(
+                "RETENTION WARNING "
+                f"backup_created_at={warning.backup_created_at.isoformat()} "
+                f"oldest_production_fetched_at={oldest} "
+                f"live_retention_cutoff={warning.live_retention_cutoff.isoformat()}",
+                file=sys.stderr,
+            )
+
         restore_database(
             args.backup,
             key,
             database_url=database_url,
+            warn=show_retention_warning,
         )
         return 0
     if args.command == "prune-backups":

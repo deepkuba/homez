@@ -896,6 +896,82 @@ class NetworkRecoveryCampaignRecord(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
+class ListingRetentionTombstoneRecord(Base):
+    """Indefinite non-content proof that detailed production data was purged."""
+
+    __tablename__ = "listing_retention_tombstones"
+
+    listing_id: Mapped[UUID] = mapped_column(primary_key=True)
+    source: Mapped[str] = mapped_column(String(20))
+    source_listing_id: Mapped[str] = mapped_column(String(255))
+    canonical_url_hash: Mapped[str] = mapped_column(String(64))
+    confirmed_inactive: Mapped[bool]
+    last_fetched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    detailed_data_deleted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    schema_version: Mapped[int] = mapped_column(server_default="1")
+
+
+class RetentionJobRunRecord(Base):
+    __tablename__ = "retention_job_runs"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    finished_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    cutoff: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    deleted_results: Mapped[int]
+    deleted_benchmark_results: Mapped[int]
+    failed_results: Mapped[int]
+    backlog_count: Mapped[int]
+    oldest_remaining_fetched_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    database_size_before: Mapped[int | None] = mapped_column(BigInteger)
+    database_size_after: Mapped[int | None] = mapped_column(BigInteger)
+    duration_ms: Mapped[int]
+    healthy: Mapped[bool]
+    error_code: Mapped[str | None] = mapped_column(String(40), nullable=True)
+
+
+class DatabaseSizeAlertStateRecord(Base):
+    __tablename__ = "database_size_alert_state"
+
+    boundary_bytes: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    armed: Mapped[bool]
+    below_streak: Mapped[int] = mapped_column(server_default="0")
+    last_alerted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    last_measured_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+
+class RetentionAlertStateRecord(Base):
+    __tablename__ = "retention_alert_state"
+
+    key: Mapped[str] = mapped_column(String(20), primary_key=True)
+    failing: Mapped[bool]
+    first_failed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    last_notified_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    last_error_code: Mapped[str | None] = mapped_column(String(40), nullable=True)
+
+
+class BenchmarkRetentionTombstoneRecord(Base):
+    __tablename__ = "benchmark_retention_tombstones"
+
+    run_id: Mapped[str] = mapped_column(String(100), primary_key=True)
+    entry_id: Mapped[str] = mapped_column(String(100), primary_key=True)
+    artifact_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    source: Mapped[str] = mapped_column(String(20))
+    variant: Mapped[str] = mapped_column(String(80))
+    status: Mapped[str] = mapped_column(String(30))
+    deleted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
 class BenchmarkManifestRecord(Base):
     """Frozen non-production corpus; never a production scrape task."""
 
