@@ -11,7 +11,7 @@ from typing import Protocol
 from uuid import uuid4
 
 from homefinder.parsers.contracts import MAX_PAGE_BYTES, PageInput
-from homefinder.scraper.contracts import FetchRequest
+from homefinder.scraper.contracts import CapturedPage, FetchRequest
 from homefinder.sources.portal_pages import validate_listing_url
 
 CHUNK_BYTES = 65_536
@@ -69,7 +69,7 @@ class BoundedPageTransport:
         self._clock = clock
         self._monotonic = monotonic
 
-    def fetch(self, request: FetchRequest) -> PageInput:
+    def fetch(self, request: FetchRequest) -> CapturedPage:
         response = None
         try:
             canonical, _ = validate_listing_url(request.source, request.canonical_url)
@@ -121,7 +121,9 @@ class BoundedPageTransport:
                 raise BoundedTransportError("capture compressed stream incomplete")
             if not body:
                 raise BoundedTransportError("capture parser input empty")
-            return PageInput(uuid4(), self._clock(), bytes(body))
+            return CapturedPage(
+                PageInput(uuid4(), self._clock(), bytes(body)), transferred
+            )
         except BoundedTransportError:
             raise
         except Exception:

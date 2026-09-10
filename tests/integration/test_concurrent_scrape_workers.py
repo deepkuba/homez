@@ -59,6 +59,9 @@ def test_both_deployments_complete_shared_queue_work(scrape_queue):
 
             return NetworkPermit(True, NOW, "direct")
 
+        def record_network_outcome(self, *args, **kwargs):
+            return None
+
         def heartbeat(self, lease):
             return repo.heartbeat(self.identity, lease, now=NOW)
 

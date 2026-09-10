@@ -75,6 +75,9 @@ def test_vps_streams_failure_bytes_without_local_persistence(
 
             return NetworkPermit(True, now, "direct")
 
+        def record_network_outcome(self, *args, **kwargs):
+            return None
+
         def heartbeat(self, lease):
             return lease
 

@@ -1063,6 +1063,10 @@ Evidence:
 - A denied permit is returned through the existing fenced deferral endpoint at
   the coordinator-selected `available_at`; it does not hold the lease until
   expiry or busy-wait in the worker.
+- A successful permitted request is accounted through the private coordinator
+  API before production task completion. The bounded transport carries both the
+  exact post-decompression parser bytes and the compressed transferred-byte
+  count, so proxy usage does not confuse artifact size with billed transfer.
 - Added focused client and private API tests for the bounded
   `/internal/scrape/v1/network/reserve` round trip. The API authorizes the
   source-scoped worker and delegates to the transactional `SourceBudgetRepository`.
@@ -1071,8 +1075,8 @@ Evidence:
 - Focused worker/client/API suite: **33 passed**. Ruff formatting/lint and strict
   mypy pass. No parser was packaged, no HTTP connector was enabled, and no live
   portal, proxy, secret, deployment, activation, or recovery action occurred.
-- Before deployment, load reviewed policies into the web coordinator, expose
-  bounded outcome classification/accounting, configure the Webshare billing
+- Before deployment, load reviewed policies into the web coordinator, complete
+  failure classification/accounting, configure the Webshare billing
   anchor, and prove denial/direct-fallback behavior through the complete worker
   round trip. The current worker remains intentionally unable to consume live
   work because `main()` advertises no releases and uses the disabled transport.

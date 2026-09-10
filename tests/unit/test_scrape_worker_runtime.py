@@ -34,6 +34,7 @@ class Coordinator:
         self.registrations = []
         self.reservations = []
         self.deferrals = []
+        self.network_outcomes = []
 
     def register(self, releases, healthy=True):
         self.registrations.append((releases, healthy))
@@ -50,6 +51,13 @@ class Coordinator:
 
     def defer(self, job, available_at, code):
         self.deferrals.append((job, available_at, code))
+
+    def record_network_outcome(
+        self, job, permit, classification, transferred_bytes, retry_after_seconds=None
+    ):
+        self.network_outcomes.append(
+            (job, permit, classification, transferred_bytes, retry_after_seconds)
+        )
 
     def heartbeat(self, job):
         self.renewed.set()
@@ -125,6 +133,50 @@ def test_worker_defers_denied_central_permit_without_fetch():
     assert coordinator.deferrals == [
         (coordinator.leased, available_at, "budget-exhausted")
     ]
+
+
+def test_worker_accounts_success_before_completing_task():
+    from homefinder.parsers.contracts import PageFacts, PageInput, ParserResult
+    from homefinder.scraper.denial_policy import ResponseClassification
+    from homefinder.scraper.worker import ScrapeWorker
+
+    coordinator = Coordinator()
+    events = []
+
+    def record(*args, **kwargs):
+        events.append(("account", args[2]))
+
+    def complete(job, outcome):
+        events.append(("complete", outcome.size_bytes))
+
+    coordinator.record_network_outcome = record
+    coordinator.complete = complete
+
+    class Transport:
+        def fetch(self, request):
+            return PageInput(uuid4(), NOW, b"synthetic")
+
+    class Parser:
+        def parse(self, page):
+            return ParserResult(
+                page.capture_id,
+                "a" * 64,
+                "synthetic",
+                (),
+                (),
+                facts=PageFacts(title="Synthetic"),
+            )
+
+    ScrapeWorker(
+        source="gratka",
+        coordinator=coordinator,
+        transport=Transport(),
+        parsers={"a" * 64: Parser()},
+        stop=Event(),
+        clock=lambda: NOW,
+    ).run_once()
+
+    assert events == [("account", ResponseClassification.SUCCESS), ("complete", 9)]
 
 
 def test_worker_heartbeats_during_fetch_and_drains_on_shutdown():

@@ -18,12 +18,14 @@ from homefinder.scrape_queue.contracts import (
     ScrapeLease,
     WorkerIdentity,
 )
+from homefinder.scraper.denial_policy import ResponseClassification, RouteDecision
 from homefinder.sources.gmail import read_secret_text
 
 ControlRequest = Callable[[str, dict[str, object], str], bytes]
 LEASE = TypeAdapter(ScrapeLease)
 OUTCOME = TypeAdapter(CaptureOutcome)
 PERMIT = TypeAdapter(NetworkPermit)
+DECISION = TypeAdapter(RouteDecision)
 MAX_CONTROL_BYTES = 128_000
 
 
@@ -154,6 +156,29 @@ class HttpCoordinatorClient:
                 "code": code,
             },
         )
+
+    def record_network_outcome(
+        self,
+        lease: ScrapeLease,
+        permit: NetworkPermit,
+        classification: ResponseClassification,
+        transferred_bytes: int,
+        retry_after_seconds: int | None = None,
+    ) -> RouteDecision:
+        raw = self._call(
+            "network/outcome",
+            {
+                "lease": LEASE.dump_python(lease, mode="json"),
+                "permit": PERMIT.dump_python(permit, mode="json"),
+                "classification": classification.value,
+                "transferred_bytes": transferred_bytes,
+                "retry_after_seconds": retry_after_seconds,
+            },
+        )
+        try:
+            return DECISION.validate_json(raw)
+        except ValueError:
+            raise CoordinatorUnavailable("invalid coordinator decision") from None
 
     def complete(self, lease: ScrapeLease, outcome: CaptureOutcome) -> None:
         self._call(

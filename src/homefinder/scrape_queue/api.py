@@ -27,11 +27,13 @@ from homefinder.scrape_queue.budget import SourceBudgetRepository
 from homefinder.scrape_queue.contracts import (
     CaptureOutcome,
     LostLease,
+    NetworkPermit,
     ScrapeLease,
     TaskClass,
     WorkerIdentity,
 )
 from homefinder.scrape_queue.repository import ScrapeQueueRepository
+from homefinder.scraper.denial_policy import ResponseClassification
 from homefinder.sources.gmail import read_secret_text
 
 Model = TypeVar("Model", bound=BaseModel)
@@ -152,6 +154,13 @@ class CompletePayload(LeaseMutation):
     outcome: OutcomePayload = Field(repr=False)
 
 
+class NetworkOutcomePayload(LeaseMutation):
+    permit: NetworkPermit
+    classification: ResponseClassification
+    transferred_bytes: int = Field(ge=0, le=2_000_000)
+    retry_after_seconds: int | None = Field(default=None, ge=0, le=86_400)
+
+
 def create_coordinator_router(
     repository: ScrapeQueueRepository,
     *,
@@ -252,6 +261,24 @@ def create_coordinator_router(
             raise HTTPException(503, "source budget configuration unavailable")
         return await execute(
             lambda: budget.reserve_start(worker, payload.lease.lease(), now=clock())
+        )
+
+    @router.post("/network/outcome")
+    async def record_network_outcome(request: Request) -> JSONResponse:
+        worker = authorize(request)
+        payload = await bounded_payload(request, NetworkOutcomePayload)
+        if budget is None:
+            raise HTTPException(503, "source budget configuration unavailable")
+        return await execute(
+            lambda: budget.record_outcome(
+                worker,
+                payload.lease.lease(),
+                payload.permit,
+                payload.classification,
+                now=clock(),
+                transferred_bytes=payload.transferred_bytes,
+                retry_after_seconds=payload.retry_after_seconds,
+            )
         )
 
     @router.post("/succeed")

@@ -50,6 +50,7 @@ def test_transport_returns_exact_bounded_parser_bytes_and_closes(encoding):
     transport = BoundedPageTransport(request=request, clock=lambda: NOW)
     page = transport.fetch(FetchRequest("gratka", URL + "?tracking=synthetic"))
     assert page.body == body and page.fetched_at == NOW
+    assert page.transferred_bytes == len(encoded)
     assert calls == [(FetchRequest("gratka", URL), 10)]
     assert response.closed and max(response.read_sizes) <= 65_536
 

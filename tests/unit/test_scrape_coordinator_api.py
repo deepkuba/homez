@@ -105,6 +105,19 @@ def test_coordinator_reserves_central_network_start(coordinator):
     assert response.json()["granted"] is True
     assert response.json()["route_class"] == "direct"
 
+    outcome = client.post(
+        PREFIX + "/network/outcome",
+        headers=auth(),
+        json={
+            "lease": lease,
+            "permit": response.json(),
+            "classification": "success",
+            "transferred_bytes": 9,
+        },
+    )
+    assert outcome.status_code == 200
+    assert outcome.json()["retry_direct_at"] is None
+
 
 def test_coordinator_bounds_payload_and_fails_closed_on_missing_auth(coordinator):
     client, _, _, credentials = coordinator

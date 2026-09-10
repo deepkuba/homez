@@ -18,7 +18,13 @@ from homefinder.scrape_queue.contracts import (
     TaskClass,
     WorkerIdentity,
 )
-from homefinder.scraper.contracts import CoordinatorClient, FetchRequest, PageTransport
+from homefinder.scraper.contracts import (
+    CapturedPage,
+    CoordinatorClient,
+    FetchRequest,
+    PageTransport,
+)
+from homefinder.scraper.denial_policy import ResponseClassification
 
 
 class ScrapeWorker:
@@ -99,7 +105,7 @@ class ScrapeWorker:
                     )
                 return True
             try:
-                page = self.transport.fetch(
+                capture = self.transport.fetch(
                     FetchRequest(self.source, lease.canonical_url, permit.route_id)
                 )
             except Exception:
@@ -108,6 +114,21 @@ class ScrapeWorker:
                         self.coordinator.fail(lease, "transport-error")
                 return True
             if lost.is_set():
+                return True
+            page = capture.page if isinstance(capture, CapturedPage) else capture
+            transferred_bytes = (
+                capture.transferred_bytes
+                if isinstance(capture, CapturedPage)
+                else len(page.body)
+            )
+            try:
+                self.coordinator.record_network_outcome(
+                    lease,
+                    permit,
+                    ResponseClassification.SUCCESS,
+                    transferred_bytes,
+                )
+            except Exception:
                 return True
             try:
                 result = self.parsers[lease.release_hash].parse(page)
