@@ -994,6 +994,27 @@ Slice 13 evidence:
   benchmark and signature decisions, immutable image, and manual activation
   remain production gates.
 
+Slice 14 status: safe synthetic Otodom implementation complete (2026-09-10);
+production evidence and activation remain gated.
+
+Slice 14 evidence:
+- Added the focused Otodom variant test first and confirmed the existing parser
+  returned `unknown-variant` for the manually authored synthetic `listing-v2`
+  shape.
+- The Otodom package alone now recognizes its exact `listing-v1` and
+  `listing-v2` markers. Version 2 reads one bounded `mainEntity` object while
+  version 1 retains its existing top-level contract; malformed, mismatched, or
+  duplicate markers remain unknown.
+- The minimal reserved-domain fixture passes the fail-closed scanner, and its
+  fixture-only benchmark result cannot satisfy changed-variant raw coverage.
+  No portal request, captured content, generator, browser, release registration,
+  or activation occurred.
+- Focused Otodom and architecture suite: **24 passed**. Full non-PostgreSQL
+  suite: **501 passed**. Ruff format/lint, strict mypy, and fixture scanning pass.
+- The authorized Otodom discovery canary, artifact review, persisted benchmark,
+  signature decisions, immutable image, and manual activation remain production
+  gates.
+
 Repeat Slice 12 independently in this order:
 
 1. Morizon — `feat(morizon): improve versioned page extraction`

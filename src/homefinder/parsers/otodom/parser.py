@@ -40,7 +40,8 @@ class OtodomPageParser:
         except UnicodeDecodeError:
             return self._unknown(page)
         markers = re.findall(
-            r'<meta\s+name="otodom:variant"\s+content="listing-v1"\s*/?>', text
+            r'<meta\s+name="otodom:variant"\s+content="(listing-v[12])"\s*/?>',
+            text,
         )
         if len(markers) != 1:
             return self._unknown(page)
@@ -50,7 +51,14 @@ class OtodomPageParser:
         if len(scripts) != 1:
             return self._unknown(page)
         try:
-            data = json.loads(html.unescape(scripts[0]))
+            decoded = json.loads(html.unescape(scripts[0]))
+            data = (
+                decoded["mainEntity"]
+                if markers[0] == "listing-v2"
+                and isinstance(decoded, dict)
+                and isinstance(decoded.get("mainEntity"), dict)
+                else decoded
+            )
             summary = dict(re.findall(r"<dt>([^<]+)</dt><dd>([^<]*)</dd>", text))
             price = int(Decimal(str(data["offers"]["price"])) * 100)
             area = str(data["floorSize"]["value"])
@@ -98,7 +106,7 @@ class OtodomPageParser:
         return ParserResult(
             page.capture_id,
             self.release_hash,
-            "listing-v1",
+            markers[0],
             candidates,
             (),
             facts=PageFacts(
