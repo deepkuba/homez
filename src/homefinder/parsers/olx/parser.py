@@ -40,7 +40,8 @@ class OlxPageParser:
         except UnicodeDecodeError:
             return self._unknown(page)
         markers = re.findall(
-            r'<meta\s+name="olx:variant"\s+content="listing-v1"\s*/?>', text
+            r'<meta\s+name="olx:variant"\s+content="(listing-v[12])"\s*/?>',
+            text,
         )
         scripts = re.findall(
             r'<script\s+type="application/ld\+json">(.*?)</script>', text, re.DOTALL
@@ -48,7 +49,14 @@ class OlxPageParser:
         if len(markers) != 1 or len(scripts) != 1:
             return self._unknown(page)
         try:
-            data = json.loads(html.unescape(scripts[0]))
+            decoded = json.loads(html.unescape(scripts[0]))
+            data = (
+                decoded["offer"]
+                if markers[0] == "listing-v2"
+                and isinstance(decoded, dict)
+                and isinstance(decoded.get("offer"), dict)
+                else decoded
+            )
             summary = dict(re.findall(r"<dt>([^<]+)</dt><dd>([^<]*)</dd>", text))
             price = int(Decimal(str(data["offers"]["price"])) * 100)
             area = str(data["floorSize"]["value"])
@@ -96,7 +104,7 @@ class OlxPageParser:
         return ParserResult(
             page.capture_id,
             self.release_hash,
-            "listing-v1",
+            markers[0],
             candidates,
             (),
             facts=PageFacts(

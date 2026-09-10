@@ -1015,6 +1015,28 @@ Slice 14 evidence:
   signature decisions, immutable image, and manual activation remain production
   gates.
 
+Slice 15 status: safe synthetic OLX implementation complete (2026-09-10);
+production evidence and activation remain gated.
+
+Slice 15 evidence:
+- Added the focused OLX variant test first and confirmed the existing parser
+  returned `unknown-variant` for the manually authored synthetic `listing-v2`
+  shape.
+- The OLX package alone now recognizes exact `listing-v1` and `listing-v2`
+  markers. Version 2 reads its single bounded `offer` object while version 1
+  retains the existing top-level layout; malformed, mismatched, duplicate, and
+  unrelated shapes remain unknown.
+- The minimal reserved-domain fixture passes the fail-closed scanner, and the
+  fixture-only benchmark result remains ineligible without raw changed-variant
+  coverage. No portal request, captured content, generator, browser, release
+  registration, or activation occurred.
+- Focused OLX and architecture suite: **24 passed**. Full non-PostgreSQL suite:
+  **503 passed**. Ruff format/lint, strict mypy, dependency audit, and fixture
+  scanning pass.
+- The authorized OLX canary, guarded artifact review, persisted benchmark,
+  signature decisions, immutable image, and manual activation remain production
+  gates.
+
 Repeat Slice 12 independently in this order:
 
 1. Morizon — `feat(morizon): improve versioned page extraction`
