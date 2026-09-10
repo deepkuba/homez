@@ -9,6 +9,7 @@ from pathlib import Path
 from threading import Event, Thread
 from typing import cast
 
+from homefinder.artifacts.contracts import ArtifactWriter
 from homefinder.parsers.contracts import Parser, ParserResult, Portal
 from homefinder.runtime import install_stop_signals, write_heartbeat
 from homefinder.scrape_queue.contracts import (
@@ -33,6 +34,7 @@ class ScrapeWorker:
         heartbeat_seconds: float = 20,
         idle_seconds: float = 2,
         heartbeat_file: Path | None = None,
+        artifact_writer: ArtifactWriter | None = None,
     ) -> None:
         if source not in {"gratka", "morizon", "otodom", "olx"}:
             raise ValueError("invalid worker source")
@@ -47,6 +49,7 @@ class ScrapeWorker:
         self.heartbeat_seconds = heartbeat_seconds
         self.idle_seconds = idle_seconds
         self.heartbeat_file = heartbeat_file
+        self.artifact_writer = artifact_writer
 
     def _advertise(self, healthy: bool = True) -> None:
         self.coordinator.register(tuple(sorted(self.parsers)), healthy=healthy)
@@ -125,12 +128,20 @@ class ScrapeWorker:
                         "admin_fee_includes_heating",
                     ),
                 )
+            artifact_id = None
+            if result.missing_fields and self.artifact_writer is not None:
+                try:
+                    artifact_id = self.artifact_writer.store(self.source, page)
+                except Exception:
+                    # Diagnostics are optional; partial normalization must continue.
+                    artifact_id = None
             outcome = CaptureOutcome(
                 page.capture_id,
                 page.fetched_at,
                 hashlib.sha256(page.body).hexdigest(),
                 len(page.body),
                 result,
+                artifact_id,
             )
             for attempt in range(3):
                 if lost.is_set():

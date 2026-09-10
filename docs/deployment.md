@@ -200,3 +200,38 @@ docker compose --env-file .env -f infra/compose.yaml up --detach --wait
 
 After rollout or rollback, record image digest, migration revision, service
 health, and smoke-test evidence in the release checklist.
+
+## Optional NAS artifact storage (dark by default)
+
+`infra/compose.artifacts-nas.yaml` is a standalone NAS deployment behind the
+inactive `artifacts` profile. It publishes port 18105 only on the configured
+NAS Tailscale address. Do not merge this file into the VPS deployment or expose
+it through Caddy. Use an immutable image digest via
+`HOMEZ_ARTIFACT_IMAGE_DIGEST` and the same reviewed application version as the
+workers.
+
+Production activation remains gated on confirmed NAS paths, a securely
+provisioned base64-encoded 32-byte wrapping key (KEK), scoped expiring identities, and a
+Tailscale grant restricting port 18105 to approved callers. These values are
+not supplied by the repository. Set `HOMEZ_ARTIFACT_DATA_DIR`,
+`HOMEZ_ARTIFACT_AUDIT_DIR`, and `HOMEZ_ARTIFACT_SECRETS_DIR` to separate,
+non-overlapping NAS directories outside every backup source tree. Precreate
+writable data/audit directories for UID/GID 10001 with mode 0700; Compose will
+not create missing bind paths. Place `artifact-kek` and `artifact-credentials`
+in the secret directory, readable by that UID (for example root:10001, 0440).
+Do not put secret values in environment variables, Git, or command arguments.
+Confirm actual host mount paths and NAS snapshot/replication exclusions before
+activation: separate Compose variable names alone do not prove host isolation.
+
+Once deployment gates are satisfied, validate the model and explicitly opt in:
+
+```bash
+docker compose --project-name homez-artifacts --env-file .env.nas \
+  -f infra/compose.artifacts-nas.yaml --profile artifacts config --quiet
+docker compose --project-name homez-artifacts --env-file .env.nas \
+  -f infra/compose.artifacts-nas.yaml --profile artifacts up --detach
+```
+
+Keep collection disabled until private authentication, read auditing, and
+retention have been verified using synthetic content. See
+[artifact operations](operations.md#nas-artifact-retention-and-backup-boundary).

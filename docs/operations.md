@@ -60,3 +60,35 @@ The buyer must authorize VPS/NAS paths and firewall/DNS changes, enter secrets
 securely, receive a test failure notification, and review a successful restore.
 Keep app and database services on the private Compose network, deploy immutable
 image tags, and run migrations before starting the new app.
+
+## NAS artifact retention and backup boundary
+
+The optional artifact service stores encrypted diagnostic objects and their
+wrapped per-object keys only under `HOMEZ_ARTIFACT_DATA_DIR` on the NAS. The
+wrapping key and scoped API identities arrive through read-only secret files
+from `HOMEZ_ARTIFACT_SECRETS_DIR`; read audit records use the separate
+`HOMEZ_ARTIFACT_AUDIT_DIR` mount. The PostgreSQL backup service mounts none of
+these paths or secrets. PostgreSQL may retain safe artifact references and
+tombstones, never raw HTML, ciphertext, or artifact decryption keys.
+
+Exclude the data and secret directories from all file backups, NAS snapshots,
+replication, and backup-account permissions. Do not nest them beneath database
+backup staging, scraper state, or any recursively backed-up parent. Check the
+resolved host paths and actual backup jobs before enabling collection. The
+architecture test verifies the Compose boundary; it cannot verify NAS backup
+configuration. Losing the unbacked-up KEK makes retained objects unreadable.
+
+Artifacts expire after 30 days. The service runs retention at startup and then
+every 3600 seconds (hourly), deleting expired ciphertext and wrapped object
+keys while retaining safe tombstones. Reads must reject expired objects even
+between sweeps. Verify expiration and deletion with synthetic content before
+production; monitor disk usage, sweep failures, and audit writability without
+logging content or credentials. A failed read audit must prevent plaintext
+from being returned. Do not loosen retention to work around a failed sweep.
+
+To roll back, disable collection at callers and stop the `artifacts` service in
+the standalone NAS project. Stopping the process also stops automated sweeps;
+complete required expiry cleanup before leaving it stopped with retained data.
+Do not copy retained artifacts or KEKs into a database restore or rollback
+bundle. Production NAS paths, KEK provisioning, identity scopes/expiry, and
+private network grants remain deployment gates until supplied and reviewed.

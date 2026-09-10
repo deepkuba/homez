@@ -508,6 +508,48 @@ Commit: `feat(scraping): coordinate source and proxy budgets`
 
 ### Slice 4 — NAS artifact service and diagnostic outcomes
 
+Status: repository implementation complete (2026-09-10); NAS rollout is gated.
+
+Evidence:
+- The named integration test failed first on the absent worker artifact-writer
+  injection before production code changed. It now proves one in-memory upload
+  of exact non-text parser bytes, one portal fetch, partial fact preservation,
+  no VPS file write, and no raw bytes in coordinator metadata or logs.
+- The NAS-local store encrypts each object with a fresh AES-GCM data key and
+  wraps that key with a NAS-only KEK. Transactional `(source, content_hash)`
+  deduplication, the 2 MB bound, tamper rejection, earliest 30-day expiry,
+  immediate expired-read refusal, hourly crypto-shred, retryable idempotent
+  deletion, and safe tombstones have deterministic filesystem tests.
+- A structurally diverse quality reservoir retains at most five unreviewed
+  positive samples per portal variant. Correct review shreds a positive-only
+  sample; incorrect review promotes it to a diagnostic; an existing diagnostic
+  always wins deduplication and cannot be removed by positive review.
+- The private API source-pins worker uploads and restricts maintenance and
+  benchmark reads to exact identifiers, with frozen benchmark membership. It
+  has no list/bulk route, enforces actual streamed size, records every attempted
+  raw read before release, fails closed when audit persistence fails, suppresses
+  access logs, and sets `Cache-Control: no-store`.
+- Central PostgreSQL stores only an opaque artifact identifier, availability,
+  complete `missing_fields`, and expiry in a separate diagnostic-run row.
+  Artifact outage records `artifact-unavailable`, keeps partial facts, performs
+  no refetch, and creates no VPS fallback file. Object paths, ciphertext, wrapped
+  keys, raw bytes, and the KEK never enter the application database.
+- The standalone NAS Compose model is opt-in, resource limited, tailnet-bound,
+  and uses separate data, audit, and secret paths absent from backup mounts.
+  Operations docs require those paths to be excluded from NAS snapshots,
+  replication, and recursive backup roots.
+- Focused artifact and handoff suite: **70 passed**. Full non-PostgreSQL suite:
+  **445 passed**; full PostgreSQL suite: **14 passed** against a fresh disposable
+  database. PostgreSQL migration downgrade/upgrade and Alembic drift checks,
+  SQLite migration tests, Ruff format/lint, strict mypy, architecture tests,
+  YAML lint, and dependency audit pass.
+- Modern Compose rendering, real NAS paths, the base64 32-byte KEK, expiring
+  scoped identities, private network grants, immutable image build, and live
+  caller wiring remain deployment gates. Installed Compose v1 cannot parse the
+  fail-closed `bind.create_host_path: false`; CI owns the Compose v2 render.
+  No deployment, secret access, production fetch, parser activation, or report
+  behavior change occurred.
+
 First failing test:
 `tests/integration/test_artifact_service.py::test_vps_streams_failure_bytes_without_local_persistence`.
 

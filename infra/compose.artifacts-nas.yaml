@@ -1,0 +1,65 @@
+---
+# Long required-variable expressions must remain unbroken.
+# yamllint disable rule:line-length
+services:
+  artifacts:
+    profiles: [artifacts]
+    image: >-
+      ${HOMEZ_IMAGE:?set image}@${HOMEZ_ARTIFACT_IMAGE_DIGEST:?set immutable digest}
+    command:
+      - python
+      - -m
+      - homefinder.artifacts.service
+      - serve
+      - --root
+      - /var/lib/homefinder-artifacts
+      - --wrapping-key-file
+      - /run/secrets/artifact_kek
+      - --credentials-file
+      - /run/secrets/artifact_credentials
+      - --audit-file
+      - /var/lib/homefinder-artifact-audit/reads.jsonl
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --retention-interval-seconds
+      - "3600"
+    user: "10001:10001"
+    init: true
+    read_only: true
+    restart: unless-stopped
+    stop_grace_period: 30s
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    pids_limit: 128
+    mem_limit: 256m
+    cpus: 0.5
+    ports:
+      - "${HOMEZ_NAS_TAILSCALE_IP:?set NAS Tailscale IP}:18105:8000"
+    volumes:
+      - type: bind
+        source: "${HOMEZ_ARTIFACT_DATA_DIR:?set NAS artifact data dir}"
+        target: /var/lib/homefinder-artifacts
+        bind:
+          create_host_path: false
+      - type: bind
+        source: "${HOMEZ_ARTIFACT_AUDIT_DIR:?set NAS artifact audit dir}"
+        target: /var/lib/homefinder-artifact-audit
+        bind:
+          create_host_path: false
+    secrets:
+      - artifact_kek
+      - artifact_credentials
+
+secrets:
+  artifact_kek:
+    file: >-
+      ${HOMEZ_ARTIFACT_SECRETS_DIR:?set NAS artifact secrets dir}/artifact-kek
+  artifact_credentials:
+    file: >-
+      ${HOMEZ_ARTIFACT_SECRETS_DIR:?set NAS artifact secrets dir}/artifact-credentials

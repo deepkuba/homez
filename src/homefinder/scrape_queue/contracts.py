@@ -106,6 +106,7 @@ class CaptureOutcome:
     content_hash: str
     size_bytes: int
     result: ParserResult = field(repr=False)
+    artifact_id: str | None = field(default=None, repr=False)
 
 
 @dataclass(frozen=True)

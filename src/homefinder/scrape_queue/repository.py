@@ -17,6 +17,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
 from homefinder.catalog.orm import (
+    DiagnosticRunRecord,
     ListingRecord,
     ListingSnapshotRecord,
     PageCaptureRecord,
@@ -305,6 +306,12 @@ class ScrapeQueueRepository:
                 re.fullmatch(r"[a-z_]{1,50}", name) is None
                 for name in result.missing_fields
             )
+            or outcome.artifact_id is not None
+            and re.fullmatch(
+                r"[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
+                outcome.artifact_id,
+            )
+            is None
         ):
             raise ValueError("invalid production capture")
         for candidate in result.candidates:
@@ -390,6 +397,22 @@ class ScrapeQueueRepository:
                 )
             )
             session.flush()
+            if result.missing_fields:
+                session.add(
+                    DiagnosticRunRecord(
+                        id=uuid4(),
+                        result_id=result_id,
+                        artifact_id=outcome.artifact_id,
+                        artifact_status=(
+                            "stored"
+                            if outcome.artifact_id is not None
+                            else "unavailable"
+                        ),
+                        missing_fields_json=json.dumps(result.missing_fields),
+                        created_at=outcome.fetched_at,
+                        expires_at=outcome.fetched_at + timedelta(days=30),
+                    )
+                )
             for position, candidate in enumerate(result.candidates):
                 session.add(
                     ProductionFieldCandidateRecord(
@@ -407,7 +430,11 @@ class ScrapeQueueRepository:
             attempt.finished_at = self._current(now)
             attempt.outcome = "succeeded"
             attempt.code = (
-                "artifact-unavailable" if result.missing_fields else "downloaded"
+                "partial"
+                if result.missing_fields and outcome.artifact_id is not None
+                else "artifact-unavailable"
+                if result.missing_fields
+                else "downloaded"
             )
             attempt.response_bytes = outcome.size_bytes
             task.state = "succeeded"

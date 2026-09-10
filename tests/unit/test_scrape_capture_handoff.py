@@ -64,6 +64,28 @@ def test_stale_capture_completion_writes_no_raw_or_facts(scrape_queue):
         assert session.scalar(select(PageCaptureRecord)) is None
 
 
+def test_missing_fields_persist_safe_diagnostic_reference(scrape_queue):
+    from dataclasses import replace
+
+    from homefinder.catalog.orm import DiagnosticRunRecord, ScrapeAttemptRecord
+
+    repo, snapshots, workers, sessions = scrape_queue
+    repo.enqueue(source="gratka", snapshot_id=snapshots[0], now=NOW)
+    lease = repo.claim(workers[0], now=NOW)
+    artifact_id = str(uuid4())
+    parsed = replace(outcome(lease), artifact_id=artifact_id)
+    repo.complete(workers[0], lease, parsed, now=NOW)
+    with sessions() as session:
+        diagnostic = session.scalars(select(DiagnosticRunRecord)).one()
+        attempt = session.get(ScrapeAttemptRecord, (lease.task_id, 1))
+        assert diagnostic.artifact_id == artifact_id
+        assert diagnostic.missing_fields_json == '["rooms"]'
+        assert diagnostic.expires_at.replace(tzinfo=timezone.utc) == NOW + timedelta(
+            days=30
+        )
+        assert attempt is not None and attempt.code == "partial"
+
+
 def test_capture_handoff_migration_matches_metadata(tmp_path, monkeypatch):
     from alembic import command
     from alembic.config import Config

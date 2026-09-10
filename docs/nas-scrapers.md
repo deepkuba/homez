@@ -167,3 +167,21 @@ primary remains active. To disable page scraping entirely, set
 `page_fetch_enabled` to `false` for every source and restart the workflow worker,
 then stop both scraper deployments. Email ingestion and existing catalog data
 remain available; no schema rollback is required.
+
+## Optional encrypted diagnostic artifacts
+
+The separate `infra/compose.artifacts-nas.yaml` deployment provides private
+artifact storage on NAS Tailscale port 18105, enabled only by the `artifacts`
+profile. Existing scraper deployments do not enable artifact collection.
+Provision the independent NAS data, audit, and secret directories and scoped
+expiring identities described in [deployment](deployment.md#optional-nas-artifact-storage-dark-by-default)
+before enabling any caller. Workers receive source-scoped upload credentials;
+maintenance and benchmark readers require separate authorized identities.
+Never reuse the shared legacy scraper token as an artifact identity or pass
+the NAS wrapping key to a worker or the VPS.
+
+Restrict the Tailscale grant to approved callers and keep the artifact endpoint
+out of public ingress. Ciphertext and wrapped keys remain NAS-local and outside
+all backup/snapshot trees. The service enforces 30-day retention with hourly
+cleanup; see the [operations runbook](operations.md#nas-artifact-retention-and-backup-boundary).
+No production path, wrapping key, or identity is assumed by this configuration.

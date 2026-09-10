@@ -115,6 +115,7 @@ class OutcomePayload(Payload):
     content_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
     size_bytes: int = Field(gt=0, le=2_000_000)
     result: ResultPayload = Field(repr=False)
+    artifact_id: UUID | None = Field(default=None, repr=False)
 
     def outcome(self) -> CaptureOutcome:
         return CaptureOutcome(
@@ -123,6 +124,7 @@ class OutcomePayload(Payload):
             self.content_hash,
             self.size_bytes,
             self.result.result(),
+            str(self.artifact_id) if self.artifact_id is not None else None,
         )
 
 

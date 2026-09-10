@@ -204,6 +204,52 @@ def test_captured_parser_failure_completes_unknowns_without_retry():
     worker.run_once()
     assert len(calls) == 1 and len(coordinator.completed) == 1
     assert coordinator.completed[0].result.missing_fields
+
+
+def test_artifact_outage_completes_partial_without_refetch_or_local_fallback(
+    tmp_path, monkeypatch
+):
+    from homefinder.parsers.contracts import PageFacts, PageInput, ParserResult
+    from homefinder.scraper.worker import ScrapeWorker
+
+    coordinator = Coordinator()
+    calls = []
+
+    class Transport:
+        def fetch(self, request):
+            calls.append(request)
+            return PageInput(uuid4(), NOW, b"synthetic diagnostic")
+
+    class Parser:
+        def parse(self, page):
+            return ParserResult(
+                page.capture_id,
+                "a" * 64,
+                "synthetic",
+                (),
+                ("rooms",),
+                facts=PageFacts(title="Synthetic partial"),
+            )
+
+    class UnavailableArtifacts:
+        def store(self, source, page):
+            raise OSError("synthetic NAS outage")
+
+    monkeypatch.chdir(tmp_path)
+    worker = ScrapeWorker(
+        source="gratka",
+        coordinator=coordinator,
+        transport=Transport(),
+        parsers={"a" * 64: Parser()},
+        artifact_writer=UnavailableArtifacts(),
+        stop=Event(),
+        clock=lambda: NOW,
+    )
+    assert worker.run_once()
+    assert len(calls) == 1
+    assert coordinator.completed[0].artifact_id is None
+    assert coordinator.completed[0].result.facts.title == "Synthetic partial"
+    assert list(tmp_path.iterdir()) == []
     assert coordinator.completed[0].result.facts.price_minor is None
 
 

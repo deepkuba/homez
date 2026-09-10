@@ -768,6 +768,28 @@ class ProductionFieldCandidateRecord(Base):
     locator: Mapped[str] = mapped_column(String(200))
 
 
+class DiagnosticRunRecord(Base):
+    """Safe central metadata; encrypted object keys and bytes remain on NAS."""
+
+    __tablename__ = "diagnostic_runs"
+    __table_args__ = (
+        CheckConstraint(
+            "artifact_status IN ('stored', 'unavailable')",
+            name="ck_diagnostic_artifact_status",
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True)
+    result_id: Mapped[UUID] = mapped_column(
+        ForeignKey("production_parser_results.id"), unique=True
+    )
+    artifact_id: Mapped[str | None] = mapped_column(String(36))
+    artifact_status: Mapped[str] = mapped_column(String(20))
+    missing_fields_json: Mapped[str] = mapped_column(String(2048))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
 class SourceRuntimeStateRecord(Base):
     __tablename__ = "source_runtime_state"
 
