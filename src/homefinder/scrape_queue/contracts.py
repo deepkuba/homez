@@ -5,7 +5,7 @@ from datetime import datetime
 from enum import Enum
 from uuid import UUID
 
-from homefinder.parsers.contracts import Portal
+from homefinder.parsers.contracts import ParserResult, Portal
 
 
 class TaskClass(str, Enum):
@@ -95,3 +95,14 @@ class TaskStatus:
 class StatusPage:
     items: tuple[TaskStatus, ...]
     next_cursor: str | None
+
+
+@dataclass(frozen=True)
+class CaptureOutcome:
+    """Metadata and production parse only; raw bytes cannot cross this boundary."""
+
+    capture_id: UUID
+    fetched_at: datetime
+    content_hash: str
+    size_bytes: int
+    result: ParserResult = field(repr=False)

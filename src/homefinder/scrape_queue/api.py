@@ -15,8 +15,9 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError
 from starlette.concurrency import run_in_threadpool
 
-from homefinder.parsers.contracts import Portal
+from homefinder.parsers.contracts import FieldCandidate, PageFacts, ParserResult, Portal
 from homefinder.scrape_queue.contracts import (
+    CaptureOutcome,
     LostLease,
     ScrapeLease,
     TaskClass,
@@ -42,6 +43,7 @@ class ClaimPayload(Payload):
 
 
 class CapabilityPayload(Payload):
+    expected_identity: WorkerIdentity | None = None
     release_hashes: tuple[str, ...] = Field(max_length=64)
     healthy: bool = True
 
@@ -78,6 +80,54 @@ class FailurePayload(LeaseMutation):
 class DeferPayload(LeaseMutation):
     available_at: datetime
     code: Literal["portal-denied", "source-cooldown", "budget-exhausted"]
+
+
+class CandidatePayload(Payload):
+    name: str = Field(max_length=80)
+    value: str | int | bool | None = Field(repr=False)
+    origin: str = Field(max_length=80)
+    locator: str = Field(max_length=200)
+    release_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+class ResultPayload(Payload):
+    capture_id: UUID
+    release_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+    variant: str = Field(pattern=r"^[a-zA-Z0-9_-]{1,80}$")
+    candidates: tuple[CandidatePayload, ...] = Field(max_length=64, repr=False)
+    missing_fields: tuple[str, ...] = Field(max_length=32)
+    facts: PageFacts
+
+    def result(self) -> ParserResult:
+        return ParserResult(
+            self.capture_id,
+            self.release_hash,
+            self.variant,
+            tuple(FieldCandidate(**item.model_dump()) for item in self.candidates),
+            self.missing_fields,
+            facts=self.facts,
+        )
+
+
+class OutcomePayload(Payload):
+    capture_id: UUID
+    fetched_at: datetime
+    content_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+    size_bytes: int = Field(gt=0, le=2_000_000)
+    result: ResultPayload = Field(repr=False)
+
+    def outcome(self) -> CaptureOutcome:
+        return CaptureOutcome(
+            self.capture_id,
+            self.fetched_at,
+            self.content_hash,
+            self.size_bytes,
+            self.result.result(),
+        )
+
+
+class CompletePayload(LeaseMutation):
+    outcome: OutcomePayload = Field(repr=False)
 
 
 def create_coordinator_router(
@@ -127,8 +177,10 @@ def create_coordinator_router(
             result = await run_in_threadpool(operation)
         except LostLease as error:
             raise HTTPException(409, "lease is no longer valid") from error
-        except ValueError as error:
-            raise HTTPException(422, "request contract is invalid") from error
+        except ValueError:
+            raise HTTPException(422, "request contract is invalid") from None
+        except Exception:
+            raise HTTPException(503, "coordinator operation unavailable") from None
         return JSONResponse(
             jsonable_encoder(result), headers={"Cache-Control": "no-store"}
         )
@@ -137,6 +189,11 @@ def create_coordinator_router(
     async def capabilities(request: Request) -> JSONResponse:
         worker = authorize(request)
         payload = await bounded_payload(request, CapabilityPayload)
+        if (
+            payload.expected_identity is not None
+            and payload.expected_identity != worker
+        ):
+            raise HTTPException(403, "worker configuration does not match credential")
         return await execute(
             lambda: repository.register_worker(
                 worker,
@@ -175,6 +232,16 @@ def create_coordinator_router(
                 now=clock(),
                 code=payload.code,
                 response_bytes=payload.response_bytes,
+            )
+        )
+
+    @router.post("/complete")
+    async def complete(request: Request) -> JSONResponse:
+        worker = authorize(request)
+        payload = await bounded_payload(request, CompletePayload, maximum=128_000)
+        return await execute(
+            lambda: repository.complete(
+                worker, payload.lease.lease(), payload.outcome.outcome(), now=clock()
             )
         )
 
@@ -222,8 +289,9 @@ def create_coordinator_router(
     return router
 
 
-async def bounded_payload(request: Request, model: type[Model]) -> Model:
-    maximum = 16_384
+async def bounded_payload(
+    request: Request, model: type[Model], *, maximum: int = 16_384
+) -> Model:
     content_length = request.headers.get("content-length")
     if content_length is not None:
         try:

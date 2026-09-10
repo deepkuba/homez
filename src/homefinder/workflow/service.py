@@ -5,6 +5,7 @@ import json
 from collections.abc import Callable, Mapping
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
+from typing import cast
 from uuid import UUID, uuid5
 
 from sqlalchemy import select
@@ -34,6 +35,8 @@ from homefinder.domain.matching import (
 )
 from homefinder.domain.profile import BuyerProfile
 from homefinder.domain.ranking import RankedCandidate, select_slate
+from homefinder.parsers.contracts import Portal
+from homefinder.scrape_queue.repository import ScrapeQueueRepository
 from homefinder.sources.portal_pages import ScrapedListing, extract_recurring_cost_facts
 from homefinder.sources.remote_scraper import RemoteScrapeDeferred
 from homefinder.workflow.models import (
@@ -50,6 +53,10 @@ RENDER_VERSION = "digest-v5"
 REPORT_NAMESPACE = UUID("7e8efea1-64da-4ba1-9a47-f70e23775994")
 
 
+class ScrapePending(Exception):
+    """Queued scrape has no accepted outcome yet."""
+
+
 class WorkflowService:
     def __init__(
         self,
@@ -57,7 +64,13 @@ class WorkflowService:
         *,
         pollers: Mapping[str, Callable[[], object]] | None = None,
         listing_scrapers: Mapping[str, Callable[[str], ScrapedListing]] | None = None,
+        scrape_queue: ScrapeQueueRepository | None = None,
+        queued_sources: frozenset[str] = frozenset(),
     ) -> None:
+        self._scrape_queue = scrape_queue
+        self._queued_sources = queued_sources
+        if queued_sources and scrape_queue is None:
+            raise ValueError("queued sources require coordinator repository")
         self._sessions = sessions
         self._pollers = dict(pollers or {})
         self._listing_scrapers = dict(listing_scrapers or {})
@@ -171,6 +184,14 @@ class WorkflowService:
                 )
             else:
                 raise PermanentWorkflowError("unknown workflow job kind")
+        except ScrapePending:
+            self.jobs.defer(
+                job,
+                now=now,
+                available_at=now + timedelta(seconds=30),
+                code="scrape-pending",
+                detail="awaiting queued scrape outcome",
+            )
         except RemoteScrapeDeferred as error:
             self.jobs.defer(
                 job,
@@ -244,7 +265,12 @@ class WorkflowService:
                 source = session.get(SourceRecord, listing.source_id)
                 if source is None:
                     raise PermanentWorkflowError("listing source is missing")
-                scraped = self._scrape_listing(source.key, listing)
+                if source.key in self._queued_sources:
+                    scraped = self._queued_listing(
+                        source.key, listing, snapshot_id, now
+                    )
+                else:
+                    scraped = self._scrape_listing(source.key, listing)
                 payload = {
                     "candidate_id": str(candidate_id),
                     "listing_id": str(listing_id),
@@ -348,6 +374,44 @@ class WorkflowService:
             },
             available_at=now,
             parent_job_id=job.id,
+        )
+
+    def _queued_listing(
+        self,
+        source_key: str,
+        listing: ListingRecord,
+        snapshot_id: UUID,
+        now: datetime,
+    ) -> ScrapedListing | None:
+        if self._scrape_queue is None:
+            raise PermanentWorkflowError("scrape coordinator is unavailable")
+        source = cast(Portal, source_key)
+        task_id = self._scrape_queue.enqueue(
+            source=source, snapshot_id=snapshot_id, now=now
+        )
+        result = self._scrape_queue.outcome(
+            source=source, snapshot_id=snapshot_id, now=now
+        )
+        if result is None:
+            if self._scrape_queue.task_state(task_id) in {"failed", "succeeded"}:
+                return None
+            raise ScrapePending
+        facts = result.facts
+        return ScrapedListing(
+            source_key=source_key,
+            source_listing_id=listing.source_listing_id,
+            canonical_url=listing.canonical_url,
+            title=facts.title or listing.title,
+            price_minor=facts.price_minor,
+            currency=facts.currency,
+            area_sqm=Decimal(facts.area_sqm) if facts.area_sqm is not None else None,
+            rooms=facts.rooms,
+            location=facts.location,
+            description=facts.description,
+            availability=facts.availability,
+            monthly_admin_fee_minor=facts.monthly_admin_fee_minor,
+            heating_type=facts.heating_type,
+            admin_fee_includes_heating=facts.admin_fee_includes_heating,
         )
 
     def _scrape_listing(

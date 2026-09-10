@@ -184,3 +184,127 @@ def test_malformed_cursor_types_are_rejected(coordinator):
     ).decode()
     response = client.get(PREFIX + "/status", headers=auth(), params={"before": cursor})
     assert response.status_code == 422
+
+
+def test_complete_endpoint_accepts_only_typed_production_handoff(coordinator):
+    from uuid import uuid4
+
+    client, repo, snapshots, _ = coordinator
+    repo.enqueue(source="gratka", snapshot_id=snapshots[0], now=NOW)
+    lease = client.post(PREFIX + "/claim", headers=auth(), json={}).json()
+    capture_id = str(uuid4())
+    payload = {
+        "lease": lease,
+        "outcome": {
+            "capture_id": capture_id,
+            "fetched_at": NOW.isoformat(),
+            "content_hash": "a" * 64,
+            "size_bytes": 10,
+            "result": {
+                "capture_id": capture_id,
+                "release_hash": "a" * 64,
+                "variant": "synthetic",
+                "candidates": [],
+                "missing_fields": ["rooms"],
+                "facts": {"title": "Synthetic title"},
+            },
+        },
+    }
+    response = client.post(PREFIX + "/complete", headers=auth(), json=payload)
+    assert response.status_code == 200
+    assert (
+        client.post(PREFIX + "/complete", headers=auth(), json=payload).status_code
+        == 200
+    )
+    payload["outcome"]["result"]["raw_body"] = "synthetic forbidden raw"
+    response = client.post(PREFIX + "/complete", headers=auth(), json=payload)
+    assert (
+        response.status_code == 422 and "synthetic forbidden raw" not in response.text
+    )
+
+
+def test_worker_startup_checks_configured_identity(coordinator):
+    client, _, _, _ = coordinator
+    response = client.post(
+        PREFIX + "/workers/heartbeat",
+        headers=auth(),
+        json={
+            "release_hashes": [],
+            "healthy": True,
+            "expected_identity": {
+                "worker_id": "test-vps",
+                "source": "gratka",
+                "deployment": "vps",
+            },
+        },
+    )
+    assert response.status_code == 403
+
+
+def test_http_worker_roundtrip_persists_capture_without_raw_body(coordinator, tmp_path):
+    from threading import Event
+    from uuid import uuid4
+
+    from homefinder.parsers.contracts import PageFacts, PageInput, ParserResult
+    from homefinder.scraper.coordinator import HttpCoordinatorClient
+    from homefinder.scraper.worker import ScrapeWorker
+
+    client, repo, snapshots, _ = coordinator
+    repo.enqueue(source="gratka", snapshot_id=snapshots[0], now=NOW)
+    token = tmp_path / "worker-token"
+    token.write_text("synthetic-nas")
+    token.chmod(0o600)
+    requests = []
+
+    def request(path, payload, bearer):
+        requests.append(payload)
+        response = client.post(
+            path, headers={"Authorization": "Bearer " + bearer}, json=payload
+        )
+        assert response.status_code == 200
+        return response.content
+
+    class Transport:
+        def fetch(self, request):
+            return PageInput(uuid4(), NOW, b"never-persist-this-synthetic-raw-body")
+
+    class Parser:
+        def parse(self, page):
+            return ParserResult(
+                page.capture_id,
+                "a" * 64,
+                "synthetic",
+                (),
+                ("rooms",),
+                facts=PageFacts(title="Synthetic roundtrip"),
+            )
+
+    worker = ScrapeWorker(
+        source="gratka",
+        coordinator=HttpCoordinatorClient("http://web:8000", token, request=request),
+        transport=Transport(),
+        parsers={"a" * 64: Parser()},
+        stop=Event(),
+        clock=lambda: NOW,
+    )
+    assert worker.run_once()
+    assert repo.outcome(source="gratka", snapshot_id=snapshots[0]).facts.title == (
+        "Synthetic roundtrip"
+    )
+    assert "never-persist-this-synthetic-raw-body" not in json.dumps(requests)
+
+
+def test_coordinator_failure_does_not_log_result_or_database_details(
+    coordinator, monkeypatch
+):
+    from homefinder.scrape_queue.repository import ScrapeQueueRepository
+
+    client, _, _, _ = coordinator
+
+    def unavailable(*args, **kwargs):
+        raise RuntimeError("synthetic-private-database-detail")
+
+    monkeypatch.setattr(ScrapeQueueRepository, "status", unavailable)
+    response = client.get(PREFIX + "/status", headers=auth())
+    assert response.status_code == 503
+    assert "synthetic-private-database-detail" not in response.text

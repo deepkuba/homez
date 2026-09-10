@@ -1,0 +1,137 @@
+# Opt-in topology; source pacing and release deployment gates remain closed.
+x-concurrent-worker: &concurrent-worker
+  image: >-
+    ${HOMEZ_IMAGE:?set image}@${HOMEZ_SCRAPE_IMAGE_DIGEST:?set immutable digest}
+  profiles:
+    - concurrent-scrapers
+  user: 10001:10001
+  init: true
+  read_only: true
+  restart: unless-stopped
+  stop_grace_period: 30s
+  tmpfs:
+    - /tmp:size=16m,mode=1777
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+  pids_limit: 128
+  mem_limit: 256m
+  cpus: 0.5
+  healthcheck:
+    test:
+      - CMD
+      - homefinder
+      - runtime-health
+      - --heartbeat-file
+      - /tmp/scrape-heartbeat
+      - --max-age-seconds
+      - '90'
+    interval: 30s
+    timeout: 5s
+    start_period: 10s
+    retries: 3
+  networks:
+    - concurrent-scraper-egress
+
+services:
+  scrape-worker-nas-gratka:
+    <<: *concurrent-worker
+    command:
+      - python
+      - -m
+      - homefinder.scraper.worker
+      - --source
+      - gratka
+      - --deployment
+      - nas
+      - --worker-id
+      - scrape-worker-nas-gratka
+      - --coordinator-url
+      - ${HOMEZ_SCRAPE_COORDINATOR_URL:?set private tailnet coordinator URL}
+      - --token-file
+      - /run/secrets/scrape_worker_nas_gratka
+      - --heartbeat-file
+      - /tmp/scrape-heartbeat
+    secrets:
+      - scrape_worker_nas_gratka
+
+  scrape-worker-nas-morizon:
+    <<: *concurrent-worker
+    command:
+      - python
+      - -m
+      - homefinder.scraper.worker
+      - --source
+      - morizon
+      - --deployment
+      - nas
+      - --worker-id
+      - scrape-worker-nas-morizon
+      - --coordinator-url
+      - ${HOMEZ_SCRAPE_COORDINATOR_URL:?set private tailnet coordinator URL}
+      - --token-file
+      - /run/secrets/scrape_worker_nas_morizon
+      - --heartbeat-file
+      - /tmp/scrape-heartbeat
+    secrets:
+      - scrape_worker_nas_morizon
+
+  scrape-worker-nas-otodom:
+    <<: *concurrent-worker
+    command:
+      - python
+      - -m
+      - homefinder.scraper.worker
+      - --source
+      - otodom
+      - --deployment
+      - nas
+      - --worker-id
+      - scrape-worker-nas-otodom
+      - --coordinator-url
+      - ${HOMEZ_SCRAPE_COORDINATOR_URL:?set private tailnet coordinator URL}
+      - --token-file
+      - /run/secrets/scrape_worker_nas_otodom
+      - --heartbeat-file
+      - /tmp/scrape-heartbeat
+    secrets:
+      - scrape_worker_nas_otodom
+
+  scrape-worker-nas-olx:
+    <<: *concurrent-worker
+    command:
+      - python
+      - -m
+      - homefinder.scraper.worker
+      - --source
+      - olx
+      - --deployment
+      - nas
+      - --worker-id
+      - scrape-worker-nas-olx
+      - --coordinator-url
+      - ${HOMEZ_SCRAPE_COORDINATOR_URL:?set private tailnet coordinator URL}
+      - --token-file
+      - /run/secrets/scrape_worker_nas_olx
+      - --heartbeat-file
+      - /tmp/scrape-heartbeat
+    secrets:
+      - scrape_worker_nas_olx
+
+networks:
+  concurrent-scraper-egress:
+    driver: bridge
+secrets:
+  scrape_worker_nas_gratka:
+    file: >-
+      ${HOMEZ_SCRAPER_SECRETS_DIR:?set secrets}/scrape-worker-nas-gratka-token
+  scrape_worker_nas_morizon:
+    file: >-
+      ${HOMEZ_SCRAPER_SECRETS_DIR:?set secrets}/scrape-worker-nas-morizon-token
+  scrape_worker_nas_otodom:
+    file: >-
+      ${HOMEZ_SCRAPER_SECRETS_DIR:?set secrets}/scrape-worker-nas-otodom-token
+  scrape_worker_nas_olx:
+    file: >-
+      ${HOMEZ_SCRAPER_SECRETS_DIR:?set secrets}/scrape-worker-nas-olx-token

@@ -47,6 +47,20 @@ jobs:
           infra/compose.yaml infra/compose.shared-vps.yaml
           infra/compose.scraping-vps.yaml infra/compose.nas-scrapers.yaml
           infra/compose.local-scrapers-vps.yaml
+          infra/compose.concurrent-scrapers-nas.yaml
+          infra/compose.concurrent-scrapers-vps.yaml
+      - name: Validate dark concurrent worker Compose models
+        env:
+          HOMEZ_SCRAPE_IMAGE_DIGEST: >-
+            sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+          HOMEZ_SCRAPE_COORDINATOR_URL: http://100.64.0.1:18000
+        run: |
+          docker compose --env-file .env.example -f infra/compose.yaml \
+            -f infra/compose.concurrent-scrapers-vps.yaml \
+            --profile concurrent-scrapers config --quiet
+          docker compose --env-file .env.example \
+            -f infra/compose.concurrent-scrapers-nas.yaml \
+            --profile concurrent-scrapers config --quiet
       - name: Upload unit evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02

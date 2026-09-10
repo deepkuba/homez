@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from typing import Protocol
 
 from homefinder.parsers.contracts import PageInput, Portal
+from homefinder.scrape_queue.contracts import CaptureOutcome, ScrapeLease
 
 
 @dataclass(frozen=True)
@@ -15,3 +16,15 @@ class FetchRequest:
 
 class PageTransport(Protocol):
     def fetch(self, request: FetchRequest) -> PageInput: ...
+
+
+class CoordinatorClient(Protocol):
+    def register(self, releases: tuple[str, ...], healthy: bool = True) -> None: ...
+
+    def claim(self) -> ScrapeLease | None: ...
+
+    def heartbeat(self, lease: ScrapeLease) -> ScrapeLease: ...
+
+    def complete(self, lease: ScrapeLease, outcome: CaptureOutcome) -> None: ...
+
+    def fail(self, lease: ScrapeLease, code: str) -> None: ...

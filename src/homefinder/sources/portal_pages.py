@@ -219,7 +219,12 @@ class PortalPageScraper:
             raise
         except Exception as error:
             raise PageScrapeError("listing page could not be fetched") from error
-        if not body or len(body) > self.max_page_bytes:
+        return self.parse_bytes(canonical_url, body)
+
+    def parse_bytes(self, url: str, body: bytes) -> ScrapedListing:
+        """Parse already captured bounded input without constructing a fetch."""
+        canonical_url, listing_id = validate_listing_url(self.source_key, url)
+        if not body or len(body) > min(self.max_page_bytes, MAX_PAGE_BYTES):
             raise PageScrapeError("listing page exceeds the size contract")
         try:
             html = body.decode("utf-8")

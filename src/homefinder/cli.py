@@ -35,6 +35,7 @@ from homefinder.runtime import (
     install_stop_signals,
     run_periodically,
 )
+from homefinder.scrape_queue.repository import ScrapeQueueRepository
 from homefinder.scraper.app import create_scraper_app
 from homefinder.scraper.rate_limit import RateLimitPolicy
 from homefinder.sources.gmail import (
@@ -272,6 +273,15 @@ def main(argv: Sequence[str] | None = None) -> int:
             pollers=(
                 _gmail_pollers(settings) if args.command == "workflow-worker" else None
             ),
+            scrape_queue=(
+                ScrapeQueueRepository(
+                    sessionmaker(engine, expire_on_commit=False),
+                    policy=settings.scrape_queue_policy(),
+                )
+                if settings.concurrent_scraping_enabled
+                else None
+            ),
+            queued_sources=_queued_sources(settings),
             listing_scrapers=(
                 _remote_scrapers(settings)
                 if args.command == "workflow-worker"
@@ -422,10 +432,28 @@ def _gmail_pollers(settings: Settings) -> dict[str, Callable[[], object]]:
     }
 
 
+def _queued_sources(settings: Settings) -> frozenset[str]:
+    if (
+        not settings.concurrent_scraping_enabled
+        or settings.gmail_source_policy_file is None
+    ):
+        return frozenset()
+    return frozenset(
+        source
+        for source in ("gratka", "morizon", "otodom", "olx")
+        if _load_source_policy(
+            settings.gmail_source_policy_file, source
+        ).page_fetch_enabled
+    )
+
+
 def _remote_scrapers(
     settings: Settings,
 ) -> dict[str, Callable[[str], ScrapedListing]]:
-    if settings.gmail_source_policy_file is None:
+    if (
+        settings.concurrent_scraping_enabled
+        or settings.gmail_source_policy_file is None
+    ):
         return {}
     endpoints = {
         "olx": settings.scraper_olx_endpoint,
@@ -537,6 +565,12 @@ def _run_container_runtime(settings: Settings, args: argparse.Namespace) -> None
             sessions,
             pollers=_gmail_pollers(settings),
             listing_scrapers=_remote_scrapers(settings),
+            scrape_queue=(
+                ScrapeQueueRepository(sessions, policy=settings.scrape_queue_policy())
+                if settings.concurrent_scraping_enabled
+                else None
+            ),
+            queued_sources=_queued_sources(settings),
         )
 
         def action(now: datetime) -> None:

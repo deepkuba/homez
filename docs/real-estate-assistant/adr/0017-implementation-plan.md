@@ -384,6 +384,57 @@ Commit: `feat(scraping): add fenced central scrape queue`
 
 ### Slice 2 — Concurrent NAS and VPS worker runtime
 
+Status: repository implementation complete (2026-09-10); runtime ships dark.
+
+Evidence:
+- Named PostgreSQL worker test failed on missing typed result/runtime before
+  production edits. Unit tests failed first for lease heartbeats, shutdown,
+  unknown release/source rejection, network-disabled transport, response-only
+  parsing, queued normalization, capture handoff, and private coordinator client.
+- Healthy NAS and VPS fake transports concurrently complete different PostgreSQL
+  tasks with no duplicate request or result. Worker/API roundtrip proves raw
+  bytes never enter completion payloads or PostgreSQL.
+- Worker execution is source/release-pinned with separate lease heartbeat,
+  bounded in-flight shutdown, configured-identity verification, and short-lease
+  rejection. No worker imports catalog ORM or receives database credentials.
+- Added injected bounded HTTP response transport: 18 fake tests cover exact
+  decompressed bytes, 2 MB transfer/input limits, deadlines, response closure,
+  gzip/deflate bombs, truncated/concatenated streams, and no followed redirects.
+  Packaged worker remains empty-capability/network-disabled until later gates.
+- Normalization now enqueues/awaits configured sources behind the existing off
+  flag, releases workflow leases while pending, and resumes partial facts through
+  unchanged downstream/report code. Legacy fallback remains default.
+- Migration `20260909_24` adds production-only parser result and field candidate
+  tables to provide the durable handoff required by Slice 2. Slice 5 expands
+  field-resolution/provenance policy. Capture metadata/results/ack commit
+  atomically, duplicate identical acknowledgements are idempotent, stale
+  epochs/task classes are fenced, and expiry is anchored to capture fetched_at.
+  Benchmark models/repositories remain physically separate and unimplemented.
+- Parser errors complete explicit unknowns without refetch; missing fields record
+  `artifact-unavailable` until Slice 4. Lost acknowledgements retry the same
+  metadata three times. Total worker/coordinator loss still has an ambiguous
+  external HTTP outcome; lease recovery may refetch. Healthy concurrency is
+  proven, not an exactly-once external-network guarantee.
+- User-requested Astra low subagent implemented Compose/topology and bounded
+  transport tests, then independently reviewed runtime/result safety. Review
+  regressions closed traceback leakage, expiry reads, task-class forgery,
+  acknowledgement retries, and safe coordinator failure responses.
+- Full suite: **329 passed, zero skipped**, PostgreSQL required. Final additional
+  API regression: **11 passed**. Subsequent CI/topology check passes separately.
+  Ruff format/lint, strict mypy, fixture scanner, YAML lint, dependency audit,
+  SQLite migration tests, PostgreSQL upgrade and Alembic drift checks pass.
+- NAS standalone, base+VPS, and full shared/legacy+VPS concurrent Compose profiles
+  validate with synthetic coordinates/digest using Compose v1. CI now validates
+  both new models with Compose v2. Image build/PostGIS 17 remain CI gates; local
+  PostgreSQL 14.24/PostGIS 3.2 was disposable under /tmp with a private Unix socket.
+- Diff/security review: no real portal/Webshare calls, raw fixtures, credentials,
+  debug output, report presentation changes, or unrelated user edits.
+- Reassessment: Slice 3 must supply aggregate source pacing, denial handling,
+  route allocation and proxy byte accounting before network transport can run.
+  Slices 4–7 must supply artifacts and reviewed executable releases before live
+  activation. No deploy, live parser activation, backlog, or recovery release.
+
+
 First failing test:
 `tests/integration/test_concurrent_scrape_workers.py::test_both_deployments_complete_shared_queue_work`.
 

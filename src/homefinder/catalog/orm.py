@@ -724,3 +724,35 @@ class ScrapeAttemptRecord(Base):
     route_class: Mapped[str] = mapped_column(String(12), server_default="unassigned")
     route_id: Mapped[UUID | None]
     response_bytes: Mapped[int] = mapped_column(server_default="0")
+
+
+class ProductionParserResultRecord(Base):
+    """Production-only queue handoff; benchmark persistence must remain separate."""
+
+    __tablename__ = "production_parser_results"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True)
+    task_id: Mapped[UUID] = mapped_column(ForeignKey("scrape_tasks.id"), unique=True)
+    capture_id: Mapped[UUID] = mapped_column(ForeignKey("page_captures.id"))
+    release_hash: Mapped[str] = mapped_column(
+        ForeignKey("parser_releases.release_hash")
+    )
+    activation_epoch: Mapped[int]
+    variant: Mapped[str] = mapped_column(String(80))
+    facts_json: Mapped[str] = mapped_column(Text)
+    missing_fields_json: Mapped[str] = mapped_column(String(2048))
+    result_hash: Mapped[str] = mapped_column(String(64))
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class ProductionFieldCandidateRecord(Base):
+    __tablename__ = "production_field_candidates"
+
+    result_id: Mapped[UUID] = mapped_column(
+        ForeignKey("production_parser_results.id"), primary_key=True
+    )
+    position: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(80))
+    value_json: Mapped[str] = mapped_column(Text)
+    origin: Mapped[str] = mapped_column(String(80))
+    locator: Mapped[str] = mapped_column(String(200))

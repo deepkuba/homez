@@ -11,6 +11,7 @@ from datetime import datetime, timedelta, timezone
 from typing import cast
 from uuid import UUID, uuid4
 
+from pydantic import TypeAdapter
 from sqlalchemy import and_, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
@@ -18,14 +19,18 @@ from sqlalchemy.orm import Session, sessionmaker
 from homefinder.catalog.orm import (
     ListingRecord,
     ListingSnapshotRecord,
+    PageCaptureRecord,
     PortalParserActivationRecord,
+    ProductionFieldCandidateRecord,
+    ProductionParserResultRecord,
     ScrapeAttemptRecord,
     ScraperWorkerRecord,
     ScrapeTaskRecord,
     SourceRecord,
 )
-from homefinder.parsers.contracts import Portal
+from homefinder.parsers.contracts import FieldCandidate, PageFacts, ParserResult, Portal
 from homefinder.scrape_queue.contracts import (
+    CaptureOutcome,
     LostLease,
     QueuePolicy,
     ScrapeLease,
@@ -273,6 +278,196 @@ class ScrapeQueueRepository:
                 lease_token=task.lease_token,
                 lease_expires_at=task.lease_expires_at,
                 attempt_number=task.attempt_count,
+            )
+
+    def complete(
+        self,
+        worker: WorkerIdentity,
+        lease: ScrapeLease,
+        outcome: CaptureOutcome,
+        *,
+        now: datetime,
+    ) -> None:
+        require_aware(now)
+        require_aware(outcome.fetched_at)
+        result = outcome.result
+        if (
+            lease.task_class not in {TaskClass.LIVE, TaskClass.NETWORK_RECOVERY}
+            or not 0 < outcome.size_bytes <= 2_000_000
+            or re.fullmatch(r"[0-9a-f]{64}", outcome.content_hash) is None
+            or outcome.capture_id != result.capture_id
+            or result.release_hash != lease.release_hash
+            or outcome.fetched_at > now
+            or len(result.candidates) > 64
+            or len(result.missing_fields) > 32
+            or re.fullmatch(r"[a-zA-Z0-9_-]{1,80}", result.variant) is None
+            or any(
+                re.fullmatch(r"[a-z_]{1,50}", name) is None
+                for name in result.missing_fields
+            )
+        ):
+            raise ValueError("invalid production capture")
+        for candidate in result.candidates:
+            if (
+                candidate.release_hash != lease.release_hash
+                or len(candidate.name) > 80
+                or len(candidate.origin) > 80
+                or len(candidate.locator) > 200
+                or len(json.dumps(candidate.value)) > 25_000
+            ):
+                raise ValueError("invalid production candidate")
+        encoded = TypeAdapter(CaptureOutcome).dump_json(outcome)
+        if len(encoded) > 120_000:
+            raise ValueError("production result too large")
+        result_hash = hashlib.sha256(encoded).hexdigest()
+        with self._sessions.begin() as session:
+            # Match claim/activation lock ordering: portal pointer, then task.
+            self._active(session, worker.source)
+            task = session.scalar(
+                select(ScrapeTaskRecord)
+                .where(ScrapeTaskRecord.id == lease.task_id)
+                .with_for_update()
+            )
+            prior = session.scalar(
+                select(ProductionParserResultRecord).where(
+                    ProductionParserResultRecord.task_id == lease.task_id
+                )
+            )
+            if prior is not None:
+                attempt = session.get(
+                    ScrapeAttemptRecord, (lease.task_id, lease.attempt_number)
+                )
+                if (
+                    task is not None
+                    and task.source == worker.source
+                    and task.task_class == lease.task_class.value
+                    and task.snapshot_id == lease.snapshot_id
+                    and prior.release_hash == lease.release_hash
+                    and prior.activation_epoch == lease.activation_epoch
+                    and prior.result_hash == result_hash
+                    and attempt is not None
+                    and attempt.lease_token == lease.lease_token
+                    and attempt.worker_id == worker.worker_id
+                ):
+                    return
+                raise LostLease("lease completion differs from accepted outcome")
+            task = self._leased(session, worker, lease, now)
+            if task.lease_started_at is None or outcome.fetched_at < aware(
+                task.lease_started_at
+            ):
+                raise ValueError("capture predates network lease")
+            try:
+                expires_at = outcome.fetched_at.replace(
+                    year=outcome.fetched_at.year + 2
+                )
+            except ValueError:
+                expires_at = outcome.fetched_at.replace(
+                    year=outcome.fetched_at.year + 2, day=28
+                )
+            session.add(
+                PageCaptureRecord(
+                    id=outcome.capture_id,
+                    snapshot_id=task.snapshot_id,
+                    fetched_at=outcome.fetched_at,
+                    content_hash=outcome.content_hash,
+                    size_bytes=outcome.size_bytes,
+                )
+            )
+            session.flush()
+            result_id = uuid4()
+            session.add(
+                ProductionParserResultRecord(
+                    id=result_id,
+                    task_id=task.id,
+                    capture_id=outcome.capture_id,
+                    release_hash=task.release_hash,
+                    activation_epoch=task.activation_epoch,
+                    variant=result.variant,
+                    facts_json=result.facts.model_dump_json(),
+                    missing_fields_json=json.dumps(result.missing_fields),
+                    result_hash=result_hash,
+                    expires_at=expires_at,
+                )
+            )
+            session.flush()
+            for position, candidate in enumerate(result.candidates):
+                session.add(
+                    ProductionFieldCandidateRecord(
+                        result_id=result_id,
+                        position=position,
+                        name=candidate.name,
+                        value_json=json.dumps(candidate.value),
+                        origin=candidate.origin,
+                        locator=candidate.locator,
+                    )
+                )
+            attempt = session.get(ScrapeAttemptRecord, (task.id, task.attempt_count))
+            if attempt is None:
+                raise LostLease("lease attempt missing")
+            attempt.finished_at = self._current(now)
+            attempt.outcome = "succeeded"
+            attempt.code = (
+                "artifact-unavailable" if result.missing_fields else "downloaded"
+            )
+            attempt.response_bytes = outcome.size_bytes
+            task.state = "succeeded"
+            task.finished_at = self._current(now)
+            self._clear_lease(task)
+
+    def outcome(
+        self,
+        *,
+        source: Portal,
+        snapshot_id: UUID,
+        now: datetime | None = None,
+    ) -> ParserResult | None:
+        now = now or datetime.now(timezone.utc)
+        require_aware(now)
+        with self._sessions() as session:
+            row = session.scalar(
+                select(ProductionParserResultRecord)
+                .join(
+                    ScrapeTaskRecord,
+                    ScrapeTaskRecord.id == ProductionParserResultRecord.task_id,
+                )
+                .where(
+                    ScrapeTaskRecord.source == source,
+                    ScrapeTaskRecord.snapshot_id == snapshot_id,
+                    ScrapeTaskRecord.state == "succeeded",
+                    ProductionParserResultRecord.expires_at > now,
+                )
+                .order_by(ScrapeTaskRecord.finished_at.desc())
+                .limit(1)
+            )
+            if row is None:
+                return None
+            candidates = session.scalars(
+                select(ProductionFieldCandidateRecord)
+                .where(ProductionFieldCandidateRecord.result_id == row.id)
+                .order_by(ProductionFieldCandidateRecord.position)
+            ).all()
+            return ParserResult(
+                row.capture_id,
+                row.release_hash,
+                row.variant,
+                tuple(
+                    FieldCandidate(
+                        item.name,
+                        json.loads(item.value_json),
+                        item.origin,
+                        item.locator,
+                        row.release_hash,
+                    )
+                    for item in candidates
+                ),
+                tuple(json.loads(row.missing_fields_json)),
+                facts=PageFacts.model_validate_json(row.facts_json),
+            )
+
+    def task_state(self, task_id: UUID) -> str | None:
+        with self._sessions() as session:
+            return session.scalar(
+                select(ScrapeTaskRecord.state).where(ScrapeTaskRecord.id == task_id)
             )
 
     def heartbeat(
@@ -524,6 +719,10 @@ class ScrapeQueueRepository:
             or task.lease_expires_at is None
             or aware(task.lease_expires_at) <= now
             or active is None
+            or task.task_class != lease.task_class.value
+            or task.snapshot_id != lease.snapshot_id
+            or task.canonical_url != lease.canonical_url
+            or task.attempt_count != lease.attempt_number
             or (task.release_hash, task.activation_epoch)
             != (active.release_hash, active.activation_epoch)
             or (lease.source, lease.release_hash, lease.activation_epoch)
