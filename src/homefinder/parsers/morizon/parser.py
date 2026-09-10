@@ -69,19 +69,26 @@ class MorizonPageParser:
             document.feed(page.body.decode("utf-8", errors="strict"))
         except (UnicodeError, ValueError, RecursionError):
             return self._unknown(page)
-        matches: list[tuple[int, dict[str, Any]]] = []
+        matches: list[tuple[int, str, dict[str, Any]]] = []
         for index, block in enumerate(document.blocks):
             try:
                 value = json.loads(block)
             except (ValueError, RecursionError):
                 continue
-            # A positive typed top-level residence is the baseline marker. Nested
-            # recommendations and unrelated Product nodes are never candidates.
-            if isinstance(value, dict) and value.get("@type") in ("Apartment", "House"):
-                matches.append((index, value))
+            # Morizon owns an explicit WebPage.mainEntity representation. Other
+            # nested objects and recommendation cards are never candidates.
+            nodes: list[tuple[str, object]] = [("", value)]
+            if isinstance(value, dict) and "mainEntity" in value:
+                nodes.append((".mainEntity", value.get("mainEntity")))
+            for path, node in nodes:
+                if isinstance(node, dict) and node.get("@type") in (
+                    "Apartment",
+                    "House",
+                ):
+                    matches.append((index, path, node))
         if len(matches) != 1:
             return self._unknown(page)
-        index, listing = matches[0]
+        index, node_path, listing = matches[0]
         offers = _mapping(listing.get("offers"))
         raw: dict[str, tuple[str, object, str]] = {
             "title": ("title", listing.get("name"), "name"),
@@ -159,7 +166,7 @@ class MorizonPageParser:
                     name,
                     value,
                     "page",
-                    f"script[type=application/ld+json][{index}].{locator}",
+                    f"script[type=application/ld+json][{index}]{node_path}.{locator}",
                     self.release_hash,
                 )
             )
@@ -189,7 +196,7 @@ class MorizonPageParser:
         return ParserResult(
             page.capture_id,
             self.release_hash,
-            "jsonld-residence-v1",
+            ("jsonld-main-entity-residence-v2" if node_path else "jsonld-residence-v1"),
             tuple(candidates),
             tuple(name for name in DECLARED_FIELDS[:11] if name not in present),
             PageFacts(**facts),

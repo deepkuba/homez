@@ -974,6 +974,26 @@ Commit: `feat(gratka): improve versioned page extraction`
 
 ### Slices 13–15 — Morizon, Otodom, and OLX releases
 
+Slice 13 status: safe synthetic Morizon implementation complete (2026-09-10);
+production evidence and activation remain gated.
+
+Slice 13 evidence:
+- Added the focused Morizon variant test first and confirmed the baseline parser
+  returned `unknown-variant` for the manually authored synthetic
+  `WebPage.mainEntity` shape.
+- The Morizon package alone now accepts one explicitly typed residence at its
+  top level or in the bounded `mainEntity` position, retains source-local
+  structural provenance, and keeps ambiguous or unrelated nested nodes unknown.
+- The minimal reserved-domain fixture passes the fail-closed scanner. A
+  synthetic-only eligibility test proves the changed variant cannot qualify
+  without raw artifact coverage. No portal request, captured content, automatic
+  fixture generation, browser, release registration, or activation occurred.
+- Focused Morizon and architecture suite: **27 passed**. Full non-PostgreSQL
+  suite: **499 passed**. Ruff format/lint, strict mypy, and fixture scanning pass.
+- The separately authorized Morizon canary, guarded artifact review, persisted
+  benchmark and signature decisions, immutable image, and manual activation
+  remain production gates.
+
 Repeat Slice 12 independently in this order:
 
 1. Morizon — `feat(morizon): improve versioned page extraction`
