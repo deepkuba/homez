@@ -233,12 +233,15 @@ class ParserReleaseRepository:
                 )
                 .with_for_update(read=True)
             ).all()
-            capable = set()
+            capabilities: dict[str, set[str]] = {"nas": set(), "vps": set()}
             for worker in workers:
                 advertised = set(json.loads(worker.release_hashes_json))
-                if required <= advertised:
-                    capable.add(worker.deployment)
-            if capable != {"nas", "vps"}:
+                if worker.deployment in capabilities:
+                    capabilities[worker.deployment].update(advertised)
+            if any(
+                not required <= capabilities[deployment]
+                for deployment in ("nas", "vps")
+            ):
                 raise ActivationRejected(
                     "healthy NAS and VPS workers must advertise candidate and rollback"
                 )

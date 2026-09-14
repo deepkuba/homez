@@ -1106,6 +1106,27 @@ Follow-up commit: `fix(scraping): account denied network attempts`
 
 Follow-up commit: `feat(scraping): load reviewed source budget policies`
 
+### Pre-cutover prerequisite — immutable worker capability topology
+
+Status: aggregate capability gate complete (2026-09-14); executable package
+verification and deployment remain gated.
+
+Evidence:
+- Added `test_activation_accepts_aggregate_release_specific_workers` first and
+  confirmed activation incorrectly required one process to claim both active
+  and candidate code. Activation now unions healthy capabilities per deployment
+  and still requires both candidate and rollback hashes independently on NAS
+  and VPS.
+- This permits one immutable release per worker process without weakening the
+  portal, health-window, benchmark, manual activation, or epoch gates. A release
+  available only on one deployment, or a required hash missing anywhere, still
+  blocks activation.
+- Focused release suite: **4 passed**, with two PostgreSQL tests skipped because
+  `TEST_POSTGRES_URL` is unavailable. Ruff and strict mypy pass. No capability
+  heartbeat, parser activation, image build, or deployment occurred.
+
+Commit: `fix(parsing): aggregate immutable worker capabilities`
+
 ### Slice 16 — Cutover and legacy removal
 
 First failing test:

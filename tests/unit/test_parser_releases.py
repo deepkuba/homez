@@ -42,6 +42,38 @@ def test_release_hash_changes_with_any_build_input(scrape_queue) -> None:
     assert changed.release_hash != first.release_hash
 
 
+def test_activation_accepts_aggregate_release_specific_workers(scrape_queue) -> None:
+    from homefinder.scrape_queue.contracts import WorkerIdentity
+
+    queue, _snapshots, _workers, sessions = scrape_queue
+    releases = ParserReleaseRepository(sessions, eligibility=lambda *args: True)
+    candidate = releases.register(_build(), now=NOW)
+    old_hash = "a" * 64
+    for deployment in ("nas", "vps"):
+        queue.register_worker(
+            WorkerIdentity(f"gratka-{deployment}-active", "gratka", deployment),
+            release_hashes=(old_hash,),
+            now=NOW,
+        )
+        queue.register_worker(
+            WorkerIdentity(f"gratka-{deployment}-candidate", "gratka", deployment),
+            release_hashes=(candidate.release_hash,),
+            now=NOW,
+        )
+
+    assert (
+        releases.activate(
+            source="gratka",
+            release_hash=candidate.release_hash,
+            actor="operator@example.test",
+            compared_metrics="reviewed release-specific worker pools",
+            expected_epoch=1,
+            now=NOW,
+        )
+        == 2
+    )
+
+
 def test_activation_is_audited_and_rollback_is_portal_isolated(scrape_queue) -> None:
     queue, _snapshots, workers, sessions = scrape_queue
     releases = ParserReleaseRepository(sessions, eligibility=lambda *args: True)
