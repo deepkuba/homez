@@ -856,6 +856,16 @@ Evidence:
   explicit authority boundary. Deployment must also wire the NAS artifact reader
   to the artifact replay input; neither network recovery nor parser activation
   is authorized by this repository change.
+- Added a fake-backed, network-free artifact recovery worker prerequisite on
+  2026-09-14. It accepts only artifact-recovery leases, verifies retained bytes
+  against the capture hash and 2 MB bound, runs only the lease-pinned parser,
+  and submits through the separate replay completion path. Focused worker and
+  recovery tests: **5 passed**; Ruff and strict mypy pass. Production wiring
+  remains gated on a NAS-local reader with an exact, short-lived recovery
+  identity and matching coordinator endpoints; no broad raw read or portal
+  transport was added.
+- Full repository verification after the worker contract: **525 passed**, with
+  19 PostgreSQL tests skipped because `TEST_POSTGRES_URL` is unavailable.
 
 First failing test:
 `tests/integration/test_parser_recovery_postgres.py::test_activation_replays_only_newest_capture_without_fetch`.
