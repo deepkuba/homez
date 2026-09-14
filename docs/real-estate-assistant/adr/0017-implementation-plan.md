@@ -1139,6 +1139,33 @@ Commit: `fix(parsing): aggregate immutable worker capabilities`
 
 Follow-up commit: `feat(parsing): derive packaged parser release identity`
 
+### Pre-cutover prerequisite — bounded direct/proxy connector
+
+Status: repository connector contract complete (2026-09-14); production worker
+wiring and proxy inputs remain gated.
+
+Evidence:
+- Added `test_connector_resolves_only_granted_proxy_route_from_secret` first and
+  confirmed no connector existed. The connector performs one HTTPS request,
+  follows no redirects, and resolves only the coordinator-granted opaque route
+  from a permission-checked local secret file. Proxy URLs and credentials are
+  held as secret values and are absent from task/control payloads and errors.
+- Unknown routes fail before connection. Positively identified proxy timeout,
+  TLS, and tunnel-authentication failures produce typed pre-portal evidence;
+  other failures remain ambiguous transport failures and cannot earn a proxy
+  fallback. There is no second-proxy selection path.
+- Denial responses are discarded without parsing while counting at most 2 MB of
+  compressed bytes. Integer or HTTP-date `Retry-After` values are bounded and
+  passed to the central decision, where a longer delay wins. Worker permit
+  requests reserve the full 2 MB before proxy allocation; exhaustion continues
+  through the existing direct route.
+- Focused connector, transport, coordinator, budget, denial, and worker suite:
+  **103 passed**. Ruff and strict mypy pass. The packaged worker entry point
+  remains disabled until artifact handling is wired, so this commit cannot
+  consume live tasks or contact a portal by itself.
+
+Commit: `feat(scraping): add bounded direct and proxy connector`
+
 ### Slice 16 — Cutover and legacy removal
 
 First failing test:

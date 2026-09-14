@@ -7,6 +7,7 @@ from collections.abc import Callable
 from contextlib import suppress
 from dataclasses import replace
 from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 from typing import Protocol
 from uuid import uuid4
 
@@ -74,8 +75,14 @@ class BoundedPageTransport:
                 replace(request, canonical_url=canonical), timeout_seconds=self._timeout
             )
             if response.status != 200:
+                transferred = self._discard_bounded(response, deadline)
                 raise BoundedTransportError(
-                    "capture response rejected", status_code=response.status
+                    "capture response rejected",
+                    status_code=response.status,
+                    retry_after_seconds=self._retry_after(
+                        response.getheader("Retry-After")
+                    ),
+                    transferred_bytes=transferred,
                 )
             encoding = (response.getheader("Content-Encoding") or "identity").lower()
             if encoding not in {"identity", "gzip", "deflate"}:
@@ -128,3 +135,32 @@ class BoundedPageTransport:
             if response is not None:
                 with suppress(Exception):
                     response.close()
+
+    def _discard_bounded(self, response: BoundedResponse, deadline: float) -> int:
+        transferred = 0
+        while transferred < MAX_PAGE_BYTES:
+            if self._monotonic() >= deadline:
+                break
+            chunk = response.read(min(CHUNK_BYTES, MAX_PAGE_BYTES - transferred))
+            if not isinstance(chunk, bytes):
+                break
+            if not chunk:
+                break
+            transferred += len(chunk)
+        return transferred
+
+    def _retry_after(self, raw: str | None) -> int | None:
+        if raw is None or len(raw) > 80:
+            return None
+        value = raw.strip()
+        if value.isascii() and value.isdigit():
+            seconds = int(value)
+        else:
+            try:
+                retry_at = parsedate_to_datetime(value)
+                if retry_at.utcoffset() is None:
+                    return None
+                seconds = math.ceil((retry_at - self._clock()).total_seconds())
+            except (TypeError, ValueError, OverflowError):
+                return None
+        return seconds if 0 <= seconds <= 31_536_000 else None

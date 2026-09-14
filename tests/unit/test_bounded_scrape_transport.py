@@ -13,15 +13,18 @@ URL = "https://gratka.pl/nieruchomosci/synthetic/ob/10000001"
 
 
 class Response:
-    def __init__(self, body, *, encoding=None, status=200):
+    def __init__(self, body, *, encoding=None, status=200, retry_after=None):
         self.body = body
         self.encoding = encoding
         self.status = status
         self.closed = False
         self.read_sizes = []
+        self.retry_after = retry_after
 
     def getheader(self, name):
-        return self.encoding if name == "Content-Encoding" else None
+        if name == "Content-Encoding":
+            return self.encoding
+        return self.retry_after if name == "Retry-After" else None
 
     def read(self, size):
         self.read_sizes.append(size)
@@ -95,7 +98,7 @@ def test_transport_rejects_unbounded_invalid_or_redirect_response(
         transport.fetch(FetchRequest("gratka", URL))
     assert response.closed
     if status != 200:
-        assert response.read_sizes == []
+        assert max(response.read_sizes) <= 65_536
 
 
 def test_transport_rejects_foreign_url_before_request():
@@ -108,6 +111,20 @@ def test_transport_rejects_foreign_url_before_request():
         BoundedPageTransport(request=request).fetch(
             FetchRequest("gratka", "https://example.invalid/synthetic")
         )
+
+
+def test_denial_reports_bounded_bytes_and_retry_after():
+    from homefinder.scraper.transport import BoundedPageTransport, BoundedTransportError
+
+    response = Response(b"synthetic denial", status=429, retry_after="1200")
+    with pytest.raises(BoundedTransportError) as caught:
+        BoundedPageTransport(request=lambda *args, **kwargs: response).fetch(
+            FetchRequest("gratka", URL, "opaque-route-a")
+        )
+
+    assert caught.value.transferred_bytes == len(b"synthetic denial")
+    assert caught.value.evidence.retry_after_seconds == 1200
+    assert response.closed
 
 
 def test_transport_accepts_exact_limit_with_bounded_decompression():

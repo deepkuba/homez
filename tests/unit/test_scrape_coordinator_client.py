@@ -66,6 +66,7 @@ def test_client_requests_central_network_permit(tmp_path):
     assert permit.route_id == "opaque-route-a"
     assert calls[0][0] == "/internal/scrape/v1/network/reserve"
     assert "canonical_url" in calls[0][1]["lease"]
+    assert calls[0][1]["requested_proxy_bytes"] == 2_000_000
 
 
 @pytest.mark.parametrize(

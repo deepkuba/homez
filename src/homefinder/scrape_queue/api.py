@@ -158,7 +158,11 @@ class NetworkOutcomePayload(LeaseMutation):
     permit: NetworkPermit
     classification: ResponseClassification
     transferred_bytes: int = Field(ge=0, le=2_000_000)
-    retry_after_seconds: int | None = Field(default=None, ge=0, le=86_400)
+    retry_after_seconds: int | None = Field(default=None, ge=0, le=31_536_000)
+
+
+class NetworkReservePayload(LeaseMutation):
+    requested_proxy_bytes: int = Field(default=0, ge=0, le=2_000_000)
 
 
 def create_coordinator_router(
@@ -256,11 +260,16 @@ def create_coordinator_router(
     @router.post("/network/reserve")
     async def reserve_network_start(request: Request) -> JSONResponse:
         worker = authorize(request)
-        payload = await bounded_payload(request, LeaseMutation)
+        payload = await bounded_payload(request, NetworkReservePayload)
         if budget is None:
             raise HTTPException(503, "source budget configuration unavailable")
         return await execute(
-            lambda: budget.reserve_start(worker, payload.lease.lease(), now=clock())
+            lambda: budget.reserve_start(
+                worker,
+                payload.lease.lease(),
+                now=clock(),
+                requested_proxy_bytes=payload.requested_proxy_bytes,
+            )
         )
 
     @router.post("/network/outcome")

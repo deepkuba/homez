@@ -140,7 +140,11 @@ class HttpCoordinatorClient:
 
     def reserve_start(self, lease: ScrapeLease) -> NetworkPermit:
         raw = self._call(
-            "network/reserve", {"lease": LEASE.dump_python(lease, mode="json")}
+            "network/reserve",
+            {
+                "lease": LEASE.dump_python(lease, mode="json"),
+                "requested_proxy_bytes": 2_000_000,
+            },
         )
         try:
             return PERMIT.validate_json(raw)
