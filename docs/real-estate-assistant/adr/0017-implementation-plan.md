@@ -1067,6 +1067,12 @@ Evidence:
   API before production task completion. The bounded transport carries both the
   exact post-decompression parser bytes and the compressed transferred-byte
   count, so proxy usage does not confuse artifact size with billed transfer.
+- Typed bounded failures carry only response classification evidence, compressed
+  byte count, and bounded retry delay. Proxy denial is centrally persisted and
+  schedules its single delayed direct fallback; direct denial defers at the
+  returned source cooldown. Unexpected transport failures are also accounted,
+  without exception text, before the bounded task failure path. No failed or
+  denied response reaches a parser or artifact writer.
 - Added focused client and private API tests for the bounded
   `/internal/scrape/v1/network/reserve` round trip. The API authorizes the
   source-scoped worker and delegates to the transactional `SourceBudgetRepository`.
@@ -1075,13 +1081,17 @@ Evidence:
 - Focused worker/client/API suite: **33 passed**. Ruff formatting/lint and strict
   mypy pass. No parser was packaged, no HTTP connector was enabled, and no live
   portal, proxy, secret, deployment, activation, or recovery action occurred.
-- Before deployment, load reviewed policies into the web coordinator, complete
-  failure classification/accounting, configure the Webshare billing
-  anchor, and prove denial/direct-fallback behavior through the complete worker
-  round trip. The current worker remains intentionally unable to consume live
-  work because `main()` advertises no releases and uses the disabled transport.
+- Full suite after success and failure accounting: **510 passed**, with 19
+  PostgreSQL tests skipped because `TEST_POSTGRES_URL` is unavailable. Before
+  deployment, load reviewed policies into the web coordinator, configure the
+  Webshare billing anchor, and implement the reviewed connector that produces
+  this typed evidence. The current worker remains intentionally unable to
+  consume live work because `main()` advertises no releases and uses the
+  disabled transport.
 
 Commit: `feat(scraping): require central permits before worker fetches`
+
+Follow-up commit: `fix(scraping): account denied network attempts`
 
 ### Slice 16 — Cutover and legacy removal
 

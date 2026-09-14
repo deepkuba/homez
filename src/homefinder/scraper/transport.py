@@ -11,7 +11,11 @@ from typing import Protocol
 from uuid import uuid4
 
 from homefinder.parsers.contracts import MAX_PAGE_BYTES, PageInput
-from homefinder.scraper.contracts import CapturedPage, FetchRequest
+from homefinder.scraper.contracts import (
+    BoundedTransportError,
+    CapturedPage,
+    FetchRequest,
+)
 from homefinder.sources.portal_pages import validate_listing_url
 
 CHUNK_BYTES = 65_536
@@ -24,14 +28,6 @@ class NetworkNotReleased(RuntimeError):
 class DisabledPageTransport:
     def fetch(self, request: FetchRequest) -> PageInput:
         raise NetworkNotReleased("central network allocation is not released")
-
-
-class BoundedTransportError(RuntimeError):
-    """Safe capture failure without response bytes, URL, or credential details."""
-
-    def __init__(self, message: str, *, status_code: int | None = None) -> None:
-        super().__init__(message)
-        self.status_code = status_code
 
 
 class BoundedResponse(Protocol):

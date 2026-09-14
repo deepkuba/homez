@@ -19,12 +19,19 @@ from homefinder.scrape_queue.contracts import (
     WorkerIdentity,
 )
 from homefinder.scraper.contracts import (
+    BoundedTransportError,
     CapturedPage,
     CoordinatorClient,
     FetchRequest,
     PageTransport,
 )
-from homefinder.scraper.denial_policy import ResponseClassification
+from homefinder.scraper.denial_policy import (
+    FailureEvidence,
+    ResponseClassification,
+    ResponseEvidence,
+    RouteClass,
+    classify_response,
+)
 
 
 class ScrapeWorker:
@@ -104,12 +111,51 @@ class ScrapeWorker:
                         lease, permit.available_at, "budget-exhausted"
                     )
                 return True
+            if permit.route_class not in {"direct", "proxy"}:
+                return True
+            route_class = cast(RouteClass, permit.route_class)
             try:
                 capture = self.transport.fetch(
                     FetchRequest(self.source, lease.canonical_url, permit.route_id)
                 )
+            except BoundedTransportError as error:
+                if lost.is_set():
+                    return True
+                try:
+                    decision = self.coordinator.record_network_outcome(
+                        lease,
+                        permit,
+                        classify_response(route_class, error.evidence),
+                        error.transferred_bytes,
+                        error.evidence.retry_after_seconds,
+                    )
+                except Exception:
+                    return True
+                if decision.retry_direct_at is not None:
+                    return True
+                if decision.source_cooldown_until is not None:
+                    with suppress(Exception):
+                        self.coordinator.defer(
+                            lease,
+                            decision.source_cooldown_until,
+                            "source-cooldown",
+                        )
+                    return True
+                with suppress(Exception):
+                    self.coordinator.fail(lease, "transport-error")
+                return True
             except Exception:
                 if not lost.is_set():
+                    with suppress(Exception):
+                        evidence = ResponseEvidence(
+                            failure=FailureEvidence.TRANSPORT_FAILURE
+                        )
+                        self.coordinator.record_network_outcome(
+                            lease,
+                            permit,
+                            classify_response(route_class, evidence),
+                            0,
+                        )
                     with suppress(Exception):
                         self.coordinator.fail(lease, "transport-error")
                 return True

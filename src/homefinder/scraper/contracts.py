@@ -7,7 +7,12 @@ from uuid import UUID
 
 from homefinder.parsers.contracts import PageInput, Portal
 from homefinder.scrape_queue.contracts import CaptureOutcome, NetworkPermit, ScrapeLease
-from homefinder.scraper.denial_policy import ResponseClassification, RouteDecision
+from homefinder.scraper.denial_policy import (
+    FailureEvidence,
+    ResponseClassification,
+    ResponseEvidence,
+    RouteDecision,
+)
 
 
 @dataclass(frozen=True)
@@ -37,6 +42,34 @@ class CapturedPage:
     @property
     def fetched_at(self) -> datetime:
         return self.page.fetched_at
+
+
+class BoundedTransportError(RuntimeError):
+    """Safe failure evidence without response bytes, URLs, or credentials."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        status_code: int | None = None,
+        failure: FailureEvidence | None = None,
+        portal_responded: bool | None = None,
+        retry_after_seconds: int | None = None,
+        transferred_bytes: int = 0,
+    ) -> None:
+        super().__init__(message)
+        if not 0 <= transferred_bytes <= 2_000_000:
+            raise ValueError("invalid transferred byte count")
+        self.evidence = ResponseEvidence(
+            status_code=status_code,
+            failure=failure,
+            portal_responded=(status_code is not None)
+            if portal_responded is None
+            else portal_responded,
+            retry_after_seconds=retry_after_seconds,
+        )
+        self.status_code = status_code
+        self.transferred_bytes = transferred_bytes
 
 
 class PageTransport(Protocol):

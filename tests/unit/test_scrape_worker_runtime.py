@@ -179,6 +179,87 @@ def test_worker_accounts_success_before_completing_task():
     assert events == [("account", ResponseClassification.SUCCESS), ("complete", 9)]
 
 
+def test_proxy_denial_is_accounted_and_never_reaches_parser():
+    from homefinder.scrape_queue.contracts import NetworkPermit
+    from homefinder.scraper.denial_policy import (
+        ResponseClassification,
+        RouteDecision,
+    )
+    from homefinder.scraper.transport import BoundedTransportError
+    from homefinder.scraper.worker import ScrapeWorker
+
+    coordinator = Coordinator()
+    coordinator.reserve_start = lambda job: NetworkPermit(
+        True, NOW, "proxy", "opaque-route-a"
+    )
+
+    def record(
+        job, permit, classification, transferred_bytes, retry_after_seconds=None
+    ):
+        coordinator.network_outcomes.append(
+            (classification, transferred_bytes, retry_after_seconds)
+        )
+        return RouteDecision(NOW + timedelta(minutes=15), None, False, True, True, 0)
+
+    coordinator.record_network_outcome = record
+
+    class Transport:
+        def fetch(self, request):
+            raise BoundedTransportError(
+                "capture response rejected",
+                status_code=403,
+                portal_responded=True,
+                retry_after_seconds=60,
+                transferred_bytes=321,
+            )
+
+    class Parser:
+        def parse(self, page):
+            pytest.fail("denied response must not reach parser")
+
+    ScrapeWorker(
+        source="gratka",
+        coordinator=coordinator,
+        transport=Transport(),
+        parsers={"a" * 64: Parser()},
+        stop=Event(),
+        clock=lambda: NOW,
+    ).run_once()
+
+    assert coordinator.network_outcomes == [
+        (ResponseClassification.PORTAL_DENIAL, 321, 60)
+    ]
+    assert coordinator.failures == []
+
+
+def test_direct_denial_defers_for_source_cooldown():
+    from homefinder.scraper.denial_policy import RouteDecision
+    from homefinder.scraper.transport import BoundedTransportError
+    from homefinder.scraper.worker import ScrapeWorker
+
+    coordinator = Coordinator()
+    cooldown = NOW + timedelta(hours=6)
+    coordinator.record_network_outcome = lambda *args, **kwargs: RouteDecision(
+        None, cooldown, False, False, False, 1
+    )
+
+    class Transport:
+        def fetch(self, request):
+            raise BoundedTransportError("capture response rejected", status_code=429)
+
+    ScrapeWorker(
+        source="gratka",
+        coordinator=coordinator,
+        transport=Transport(),
+        parsers={"a" * 64: object()},
+        stop=Event(),
+        clock=lambda: NOW,
+    ).run_once()
+
+    assert coordinator.deferrals == [(coordinator.leased, cooldown, "source-cooldown")]
+    assert coordinator.failures == []
+
+
 def test_worker_heartbeats_during_fetch_and_drains_on_shutdown():
     from homefinder.parsers.contracts import PageFacts, PageInput, ParserResult
     from homefinder.scraper.worker import ScrapeWorker
