@@ -77,3 +77,44 @@ def test_validation_errors_do_not_expose_database_password() -> None:
 def test_log_level_is_validated() -> None:
     with pytest.raises(ValidationError):
         Settings(log_level="TRACE", _env_file=None)
+
+
+def test_enabled_coordinator_requires_complete_source_budget_file(tmp_path) -> None:
+    import json
+
+    credentials = tmp_path / "identities"
+    credentials.write_text("[]")
+    with pytest.raises(ValidationError, match="source budget policy file"):
+        Settings(
+            _env_file=None,
+            concurrent_scraping_enabled=True,
+            coordinator_credentials_file=credentials,
+        )
+
+    policy = tmp_path / "source-budget.json"
+    policy.write_text(
+        json.dumps(
+            {
+                "billing_cycle_anchor_day": 15,
+                "portals": {
+                    source: {
+                        "minimum_interval_seconds": 10,
+                        "daily_attempt_limit": 1100,
+                        "daily_success_limit": 1000,
+                        "policy_version": "reviewed-2026-09",
+                    }
+                    for source in ("gratka", "morizon", "otodom", "olx")
+                },
+            }
+        )
+    )
+    settings = Settings(
+        _env_file=None,
+        concurrent_scraping_enabled=True,
+        coordinator_credentials_file=credentials,
+        source_budget_policy_file=policy,
+    )
+
+    loaded = settings.source_budget_configuration()
+    assert loaded.billing_cycle_anchor_day == 15
+    assert set(loaded.policies) == {"gratka", "morizon", "otodom", "olx"}

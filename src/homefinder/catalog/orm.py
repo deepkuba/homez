@@ -1132,7 +1132,7 @@ class SourceRuntimeStateRecord(Base):
 class ProxyUsageLedgerRecord(Base):
     __tablename__ = "proxy_usage_ledger"
 
-    billing_cycle: Mapped[str] = mapped_column(String(7), primary_key=True)
+    billing_cycle: Mapped[str] = mapped_column(String(10), primary_key=True)
     allocated_bytes: Mapped[int] = mapped_column(BigInteger, server_default="0")
     transferred_bytes: Mapped[int] = mapped_column(BigInteger, server_default="0")
 

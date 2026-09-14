@@ -1088,10 +1088,23 @@ Evidence:
   this typed evidence. The current worker remains intentionally unable to
   consume live work because `main()` advertises no releases and uses the
   disabled transport.
+- Reviewed policy loading is now a bounded, strict four-portal file contract.
+  Enabling the coordinator without the file, any portal, or a valid 1–28
+  Webshare anchor day fails closed. The web app constructs the sole central
+  budget repository from that file; workers do not receive it. Billing ledgers
+  use the configured cycle-start date, backed by migration 32 expanding the key
+  from `YYYY-MM` to `YYYY-MM-DD` without deleting rows.
+- Policy/billing focused tests: **34 passed**. Full suite: **513 passed**, with
+  19 PostgreSQL tests skipped because `TEST_POSTGRES_URL` remains unavailable.
+  Ruff format/lint, strict mypy, SQLite upgrade/downgrade/re-upgrade, and
+  Alembic schema drift checks pass. Production policy values and the actual
+  Webshare billing anchor remain explicit operator inputs.
 
 Commit: `feat(scraping): require central permits before worker fetches`
 
 Follow-up commit: `fix(scraping): account denied network attempts`
+
+Follow-up commit: `feat(scraping): load reviewed source budget policies`
 
 ### Slice 16 — Cutover and legacy removal
 

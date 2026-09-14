@@ -28,6 +28,46 @@ def test_budget_policy_validates_reference_profile():
         )
 
 
+def test_proxy_ledger_uses_reviewed_billing_cycle_anchor(scrape_queue):
+    from sqlalchemy import select
+
+    from homefinder.catalog.orm import ProxyUsageLedgerRecord
+    from homefinder.scrape_queue.budget import SourceBudgetRepository
+    from homefinder.scrape_queue.contracts import SourceBudgetPolicy
+
+    _, _, _, sessions = scrape_queue
+    budget = SourceBudgetRepository(
+        sessions,
+        policies={"gratka": SourceBudgetPolicy(timedelta(seconds=10), 1100, 1000)},
+        billing_cycle_anchor_day=15,
+    )
+    budget.register_proxy_route(route_id="route-a", now=NOW)
+    budget.record_proxy_bytes(
+        route_id="route-a", source="gratka", transferred_bytes=10, now=NOW
+    )
+    next_cycle = NOW + timedelta(days=6)
+    budget.record_proxy_bytes(
+        route_id="route-a", source="gratka", transferred_bytes=20, now=next_cycle
+    )
+
+    with sessions() as session:
+        rows = session.scalars(
+            select(ProxyUsageLedgerRecord).order_by(
+                ProxyUsageLedgerRecord.billing_cycle
+            )
+        ).all()
+    assert [(row.billing_cycle, row.transferred_bytes) for row in rows] == [
+        ("2026-08-15", 10),
+        ("2026-09-15", 20),
+    ]
+
+
+def test_proxy_billing_cycle_column_holds_anchored_date():
+    from homefinder.catalog.orm import ProxyUsageLedgerRecord
+
+    assert ProxyUsageLedgerRecord.__table__.c.billing_cycle.type.length == 10
+
+
 def test_webshare_ceiling_reserves_100_mb_and_direct_continues(scrape_queue):
     from homefinder.scrape_queue.budget import SourceBudgetRepository
     from homefinder.scrape_queue.contracts import SourceBudgetPolicy

@@ -190,7 +190,9 @@ def test_naive_deferral_and_unknown_cursor_fail_safely(coordinator):
     assert response.status_code == 422 and "broken" not in response.text
 
 
-def test_enabled_web_app_mounts_private_coordinator(coordinator, scrape_queue):
+def test_enabled_web_app_mounts_private_coordinator(
+    coordinator, scrape_queue, source_budget_policy_file
+):
     from homefinder.config import Settings
     from homefinder.web.app import create_app
 
@@ -202,6 +204,7 @@ def test_enabled_web_app_mounts_private_coordinator(coordinator, scrape_queue):
         database_url=str(sessions.kw["bind"].url),
         concurrent_scraping_enabled=True,
         coordinator_credentials_file=credentials,
+        source_budget_policy_file=source_budget_policy_file,
     )
     with TestClient(create_app(settings)) as client:
         response = client.get(PREFIX + "/status", headers=auth())

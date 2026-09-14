@@ -1,3 +1,4 @@
+import json
 import os
 
 import pytest
@@ -6,6 +7,28 @@ from alembic.config import Config
 from sqlalchemy import create_engine
 
 from homefinder.catalog.orm import Base
+
+
+@pytest.fixture
+def source_budget_policy_file(tmp_path):
+    path = tmp_path / "source-budget.json"
+    path.write_text(
+        json.dumps(
+            {
+                "billing_cycle_anchor_day": 15,
+                "portals": {
+                    source: {
+                        "minimum_interval_seconds": 10,
+                        "daily_attempt_limit": 1100,
+                        "daily_success_limit": 1000,
+                        "policy_version": "synthetic-reviewed-v1",
+                    }
+                    for source in ("gratka", "morizon", "otodom", "olx")
+                },
+            }
+        )
+    )
+    return path
 
 
 def pytest_sessionstart(session: pytest.Session) -> None:

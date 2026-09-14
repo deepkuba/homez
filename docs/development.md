@@ -284,8 +284,29 @@ registries fail closed. Tokens belong in worker secret files, never task payload
 or database rows. Production credential creation and provisioning remain
 deployment gates.
 
-With `HOMEFINDER_CONCURRENT_SCRAPING_ENABLED=true` and a credential-file path,
-the web app mounts these private routes under `/internal/scrape/v1`:
+With `HOMEFINDER_CONCURRENT_SCRAPING_ENABLED=true`, a credential-file path, and
+`HOMEFINDER_SOURCE_BUDGET_POLICY_FILE`, the web app mounts these private routes
+under `/internal/scrape/v1`. The policy file is bounded, rejects unknown keys,
+and must contain exactly Gratka, Morizon, Otodom, and OLX:
+
+```json
+{
+  "billing_cycle_anchor_day": 15,
+  "portals": {
+    "gratka": {"minimum_interval_seconds": 10, "daily_attempt_limit": 1100, "daily_success_limit": 1000, "policy_version": "reviewed-2026-09"},
+    "morizon": {"minimum_interval_seconds": 10, "daily_attempt_limit": 1100, "daily_success_limit": 1000, "policy_version": "reviewed-2026-09"},
+    "otodom": {"minimum_interval_seconds": 10, "daily_attempt_limit": 1100, "daily_success_limit": 1000, "policy_version": "reviewed-2026-09"},
+    "olx": {"minimum_interval_seconds": 10, "daily_attempt_limit": 1100, "daily_success_limit": 1000, "policy_version": "reviewed-2026-09"}
+  }
+}
+```
+
+The values above demonstrate the reference capacity profile; they are not
+production approval. Record the portal-policy review and Webshare billing anchor
+before supplying the production file. The web process reads it directly; workers
+never receive this file or database credentials.
+
+The private routes are:
 
 - `POST /workers/heartbeat`: bounded executable release hashes and health.
 - `POST /claim`: optional production task classes; source and deployment come

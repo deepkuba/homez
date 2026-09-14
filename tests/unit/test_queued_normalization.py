@@ -147,7 +147,9 @@ def test_effective_result_excludes_revoked_release(scrape_queue):
     assert repo.outcome(source="gratka", snapshot_id=snapshots[0], now=NOW) is None
 
 
-def test_enabled_queue_does_not_require_legacy_scraper_endpoint(monkeypatch, tmp_path):
+def test_enabled_queue_does_not_require_legacy_scraper_endpoint(
+    monkeypatch, tmp_path, source_budget_policy_file
+):
     from homefinder import cli
     from homefinder.config import Settings
     from homefinder.sources.policy import SourcePolicy
@@ -156,6 +158,7 @@ def test_enabled_queue_does_not_require_legacy_scraper_endpoint(monkeypatch, tmp
         _env_file=None,
         concurrent_scraping_enabled=True,
         coordinator_credentials_file=tmp_path / "identities",
+        source_budget_policy_file=source_budget_policy_file,
         gmail_source_policy_file=tmp_path / "policy",
     )
     monkeypatch.setattr(

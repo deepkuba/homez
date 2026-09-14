@@ -10,6 +10,10 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.exc import ArgumentError
 
 from homefinder.scrape_queue.contracts import QueuePolicy
+from homefinder.scrape_queue.policy_config import (
+    SourceBudgetConfiguration,
+    load_source_budget_configuration,
+)
 from homefinder.sources.gmail import read_secret_text
 
 
@@ -51,6 +55,7 @@ class Settings(BaseSettings):
     backup_key_file: Path | None = None
     concurrent_scraping_enabled: bool = False
     coordinator_credentials_file: Path | None = None
+    source_budget_policy_file: Path | None = None
     scrape_lease_seconds: int = 60
     scrape_heartbeat_seconds: int = 20
     scrape_max_lease_seconds: int = 600
@@ -71,11 +76,12 @@ class Settings(BaseSettings):
     @model_validator(mode="after")
     def validate_coordinator(self) -> Settings:
         self.scrape_queue_policy()
-        if (
-            self.concurrent_scraping_enabled
-            and self.coordinator_credentials_file is None
-        ):
-            raise ValueError("coordinator credentials file is required")
+        if self.concurrent_scraping_enabled:
+            if self.coordinator_credentials_file is None:
+                raise ValueError("coordinator credentials file is required")
+            if self.source_budget_policy_file is None:
+                raise ValueError("source budget policy file is required")
+            self.source_budget_configuration()
         return self
 
     def scrape_queue_policy(self) -> QueuePolicy:
@@ -87,6 +93,14 @@ class Settings(BaseSettings):
             max_attempts=self.scrape_max_attempts,
             metadata_retention_days=self.scrape_metadata_retention_days,
         )
+
+    def source_budget_configuration(self) -> SourceBudgetConfiguration:
+        if self.source_budget_policy_file is None:
+            raise ValueError("source budget policy file is required")
+        try:
+            return load_source_budget_configuration(self.source_budget_policy_file)
+        except (OSError, ValueError) as error:
+            raise ValueError("source budget policy file is invalid") from error
 
     @model_validator(mode="after")
     def validate_database(self) -> Settings:

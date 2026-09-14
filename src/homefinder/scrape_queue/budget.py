@@ -1,6 +1,6 @@
 """Transactional aggregate source pacing and bounded proxy allocation."""
 
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import cast
 
 from sqlalchemy import select
@@ -44,11 +44,15 @@ class SourceBudgetRepository:
         sessions: sessionmaker[Session],
         *,
         policies: dict[str, SourceBudgetPolicy],
+        billing_cycle_anchor_day: int = 1,
     ) -> None:
         if not policies:
             raise ValueError("at least one source policy is required")
         self._sessions = sessions
         self._policies = dict(policies)
+        if not 1 <= billing_cycle_anchor_day <= 28:
+            raise ValueError("billing cycle anchor day must be between 1 and 28")
+        self._billing_cycle_anchor_day = billing_cycle_anchor_day
 
     def reserve_start(
         self,
@@ -346,9 +350,10 @@ class SourceBudgetRepository:
         state.policy_version = policy.policy_version
         return state
 
-    @staticmethod
-    def _locked_proxy_ledger(session: Session, now: datetime) -> ProxyUsageLedgerRecord:
-        cycle = now.strftime("%Y-%m")
+    def _locked_proxy_ledger(
+        self, session: Session, now: datetime
+    ) -> ProxyUsageLedgerRecord:
+        cycle = self._billing_cycle(now).isoformat()
         ledger = session.scalar(
             select(ProxyUsageLedgerRecord)
             .where(ProxyUsageLedgerRecord.billing_cycle == cycle)
@@ -372,21 +377,30 @@ class SourceBudgetRepository:
             raise RuntimeError("proxy ledger could not be initialized")
         return ledger
 
-    @staticmethod
     def _reconcile_proxy_reservation(
+        self,
         session: Session,
         attempt: ScrapeAttemptRecord,
         *,
         transferred_bytes: int,
         now: datetime,
     ) -> None:
-        ledger = SourceBudgetRepository._locked_proxy_ledger(session, now)
+        ledger = self._locked_proxy_ledger(session, now)
         remaining = ledger.allocated_bytes - attempt.proxy_reserved_bytes
         if remaining + transferred_bytes > PROXY_USABLE_BYTES:
             raise ValueError("proxy usage exceeds usable allowance")
         ledger.transferred_bytes += transferred_bytes
         ledger.allocated_bytes = remaining + transferred_bytes
         attempt.proxy_reserved_bytes = 0
+
+    def _billing_cycle(self, now: datetime) -> date:
+        year, month = now.year, now.month
+        if now.day < self._billing_cycle_anchor_day:
+            month -= 1
+            if month == 0:
+                year -= 1
+                month = 12
+        return date(year, month, self._billing_cycle_anchor_day)
 
     @staticmethod
     def _validate_lease(

@@ -46,6 +46,7 @@ from homefinder.enrichment.environment import ManualCorrectionStore
 from homefinder.operations.health import HealthRegistry, HealthState
 from homefinder.operations.logging import setup_logging
 from homefinder.scrape_queue.api import create_coordinator_router
+from homefinder.scrape_queue.budget import SourceBudgetRepository
 from homefinder.scrape_queue.repository import ScrapeQueueRepository
 from homefinder.sources.gmail import TokenError, read_secret_text
 from homefinder.web.scraper_errors import (
@@ -81,10 +82,18 @@ def create_app(
         credentials_file = coordinator_settings.coordinator_credentials_file
         if credentials_file is None:
             raise ValueError("coordinator credentials file is required")
+        budget_configuration = coordinator_settings.source_budget_configuration()
         application.include_router(
             create_coordinator_router(
                 ScrapeQueueRepository(
                     sessions, policy=coordinator_settings.scrape_queue_policy()
+                ),
+                budget=SourceBudgetRepository(
+                    sessions,
+                    policies=budget_configuration.policies,
+                    billing_cycle_anchor_day=(
+                        budget_configuration.billing_cycle_anchor_day
+                    ),
                 ),
                 credentials_file=credentials_file,
             )
