@@ -41,6 +41,7 @@ RUN python -m pip install --no-cache-dir /wheels/* \
 WORKDIR /app
 COPY alembic.ini ./
 COPY migrations ./migrations
+COPY requirements.lock /app/release/requirements.lock
 
 USER 10001:10001
 EXPOSE 8000

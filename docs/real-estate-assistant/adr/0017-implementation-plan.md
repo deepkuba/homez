@@ -1124,8 +1124,20 @@ Evidence:
 - Focused release suite: **4 passed**, with two PostgreSQL tests skipped because
   `TEST_POSTGRES_URL` is unavailable. Ruff and strict mypy pass. No capability
   heartbeat, parser activation, image build, or deployment occurred.
+- Added a package loader that derives the executable release hash from the
+  source-owned parser files, the shared typed parser contract/configuration, and
+  exact bounded dependency-lock bytes. It constructs the selected portal parser
+  with that derived hash, and the result matches `ReleaseBuild.release_hash`;
+  callers cannot relabel installed code with an arbitrary advertised hash.
+- The runtime image now retains the build's `requirements.lock` at the fixed
+  `/app/release/requirements.lock` path. Focused package, release, and
+  architecture suite: **27 passed**; Ruff and strict mypy pass. Image building
+  and wiring this verified parser together with the still-disabled production
+  connector remain deployment prerequisites.
 
 Commit: `fix(parsing): aggregate immutable worker capabilities`
+
+Follow-up commit: `feat(parsing): derive packaged parser release identity`
 
 ### Slice 16 — Cutover and legacy removal
 

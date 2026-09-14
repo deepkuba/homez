@@ -62,17 +62,12 @@ class ReleaseBuild:
 
     @property
     def release_hash(self) -> str:
-        payload = json.dumps(
-            {
-                "source": self.source,
-                "parser_content_hash": self.parser_content_hash,
-                "configuration_hash": self.configuration_hash,
-                "dependency_lock_hash": self.dependency_lock_hash,
-            },
-            sort_keys=True,
-            separators=(",", ":"),
-        ).encode()
-        return hashlib.sha256(payload).hexdigest()
+        return content_addressed_release_hash(
+            self.source,
+            self.parser_content_hash,
+            self.configuration_hash,
+            self.dependency_lock_hash,
+        )
 
 
 @dataclass(frozen=True)
@@ -298,9 +293,34 @@ def _audit_text(actor: str, detail: str) -> None:
         raise ValueError("bounded activation audit fields required")
 
 
+def content_addressed_release_hash(
+    source: Portal,
+    parser_content_hash: str,
+    configuration_hash: str,
+    dependency_lock_hash: str,
+) -> str:
+    if source not in {"gratka", "morizon", "otodom", "olx"} or any(
+        _HASH.fullmatch(value) is None
+        for value in (parser_content_hash, configuration_hash, dependency_lock_hash)
+    ):
+        raise ValueError("invalid content-addressed release input")
+    payload = json.dumps(
+        {
+            "source": source,
+            "parser_content_hash": parser_content_hash,
+            "configuration_hash": configuration_hash,
+            "dependency_lock_hash": dependency_lock_hash,
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode()
+    return hashlib.sha256(payload).hexdigest()
+
+
 __all__ = [
     "ActivationRejected",
     "ParserReleaseRepository",
     "RegisteredRelease",
     "ReleaseBuild",
+    "content_addressed_release_hash",
 ]

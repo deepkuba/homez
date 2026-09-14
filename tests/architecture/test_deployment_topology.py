@@ -231,3 +231,9 @@ def test_runtime_image_contains_matching_postgresql_client() -> None:
 
     assert "postgresql-client-17=" in dockerfile
     assert "apt.postgresql.org.asc" in dockerfile
+
+
+def test_runtime_image_contains_immutable_parser_dependency_lock() -> None:
+    dockerfile = Path("Dockerfile").read_text(encoding="utf-8")
+
+    assert "COPY requirements.lock /app/release/requirements.lock" in dockerfile
