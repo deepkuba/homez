@@ -1201,6 +1201,26 @@ Commit: `feat(scraping): wire immutable production worker runtime`
 
 ### Slice 16 — Cutover and legacy removal
 
+Status: repository cutover drills in progress (2026-09-14); production rollout
+and legacy removal remain gated.
+
+Evidence:
+- Added a deterministic NAS/VPS outage drill for both failure directions. It
+  proves the healthy deployment claims distinct work while its peer is active,
+  cannot duplicate the peer's live lease, reclaims the abandoned task after
+  lease expiry, and fences completion by the stale owner.
+- Focused queue and concurrent-worker verification: **13 passed**, with the
+  PostgreSQL concurrency test skipped because `TEST_POSTGRES_URL` is not
+  configured. The drill uses only synthetic catalog data and performs no portal
+  or infrastructure request.
+- Full repository verification: **524 passed**, with 19 PostgreSQL tests skipped
+  for the same unavailable test database. Ruff formatting/lint, strict mypy,
+  fixture safety, dependency audit, YAML lint, SQLite migration up/down/up, and
+  the dark NAS/VPS Compose models pass locally; installed Compose v1 was used.
+- Legacy fallback removal remains blocked by the required per-portal production
+  rollout evidence. No fallback configuration was removed and no service was
+  started, deployed, activated, or given recovery work.
+
 First failing test:
 `tests/architecture/test_deployment_topology.py::test_no_primary_fallback_scraper_configuration_remains`.
 
