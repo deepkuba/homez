@@ -83,18 +83,21 @@ def create_app(
         if credentials_file is None:
             raise ValueError("coordinator credentials file is required")
         budget_configuration = coordinator_settings.source_budget_configuration()
+        source_budget = SourceBudgetRepository(
+            sessions,
+            policies=budget_configuration.policies,
+            billing_cycle_anchor_day=budget_configuration.billing_cycle_anchor_day,
+        )
+        for route_id in budget_configuration.proxy_route_ids:
+            source_budget.register_proxy_route(
+                route_id=route_id, now=datetime.now(timezone.utc)
+            )
         application.include_router(
             create_coordinator_router(
                 ScrapeQueueRepository(
                     sessions, policy=coordinator_settings.scrape_queue_policy()
                 ),
-                budget=SourceBudgetRepository(
-                    sessions,
-                    policies=budget_configuration.policies,
-                    billing_cycle_anchor_day=(
-                        budget_configuration.billing_cycle_anchor_day
-                    ),
-                ),
+                budget=source_budget,
                 credentials_file=credentials_file,
             )
         )

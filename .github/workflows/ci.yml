@@ -54,6 +54,8 @@ jobs:
           HOMEZ_SCRAPE_IMAGE_DIGEST: >-
             sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
           HOMEZ_SCRAPE_COORDINATOR_URL: http://100.64.0.1:18000
+          HOMEZ_SCRAPE_WORKER_SLOT: synthetic-release
+          HOMEZ_ARTIFACT_ENDPOINT: http://100.64.0.2:18105
         run: |
           docker compose --env-file .env.example -f infra/compose.yaml \
             -f infra/compose.concurrent-scrapers-vps.yaml \

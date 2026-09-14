@@ -229,6 +229,29 @@ Do not put secret values in environment variables, Git, or command arguments.
 Confirm actual host mount paths and NAS snapshot/replication exclusions before
 activation: separate Compose variable names alone do not prove host isolation.
 
+## Concurrent scraper worker staging
+
+The ADR 0017 worker overlays remain opt-in. Stage one immutable release slot at
+a time by setting `HOMEZ_SCRAPE_WORKER_SLOT` to a safe unique name and
+`HOMEZ_SCRAPE_IMAGE_DIGEST` to that slot's image digest. Set
+`HOMEZ_ARTIFACT_ENDPOINT` to the private NAS artifact service. The VPS overlay
+also mounts `${HOMEZ_CONFIG_DIR}/source-budget.json` and reads the hashed worker
+registry from `${HOMEZ_SECRETS_DIR}/scrape-coordinator-credentials.json`.
+
+Each host needs a local `scrape-proxy-pool.json` secret mapping the reviewed
+opaque route IDs to proxy URLs. Each source and deployment needs a distinct
+coordinator token and source-scoped artifact token matching the server-side
+identity files. Keep active and candidate slots in separate Compose projects;
+their `HOMEZ_SCRAPE_WORKER_SLOT` values must differ. Render both projects and
+confirm their worker IDs, image digests, secrets, private routes, and resource
+limits before starting either one.
+
+Do not start these workers until the artifact service, central policy, identity
+registries, proxy billing anchor, immutable release records, and rollback image
+are reviewed together. Starting a worker can consume active queued tasks. Parser
+activation, recovery release, and the legacy cutover remain separate manual
+actions.
+
 Once deployment gates are satisfied, validate the model and explicitly opt in:
 
 ```bash

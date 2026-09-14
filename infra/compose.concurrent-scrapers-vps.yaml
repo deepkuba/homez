@@ -1,3 +1,6 @@
+---
+# Required-variable expressions and immutable worker IDs must remain unbroken.
+# yamllint disable rule:line-length
 # Opt-in topology; source pacing and release deployment gates remain closed.
 x-concurrent-worker: &concurrent-worker
   image: >-
@@ -37,6 +40,20 @@ x-concurrent-worker: &concurrent-worker
 
 services:
   web:
+    environment:
+      HOMEFINDER_CONCURRENT_SCRAPING_ENABLED: "true"
+      HOMEFINDER_COORDINATOR_CREDENTIALS_FILE: >-
+        /run/secrets/scrape_coordinator_credentials
+      HOMEFINDER_SOURCE_BUDGET_POLICY_FILE: >-
+        /run/homefinder-config/source-budget.json
+    secrets:
+      - scrape_coordinator_credentials
+    volumes:
+      - type: bind
+        source: >-
+          ${HOMEZ_CONFIG_DIR:?set config dir}/source-budget.json
+        target: /run/homefinder-config/source-budget.json
+        read_only: true
     networks:
       - backend
       - frontend
@@ -53,15 +70,25 @@ services:
       - --deployment
       - vps
       - --worker-id
-      - scrape-worker-vps-gratka
+      - scrape-worker-vps-gratka-${HOMEZ_SCRAPE_WORKER_SLOT:?set immutable release slot}
       - --coordinator-url
       - http://web:8000
       - --token-file
       - /run/secrets/scrape_worker_vps_gratka
       - --heartbeat-file
       - /tmp/scrape-heartbeat
+      - --dependency-lock-file
+      - /app/release/requirements.lock
+      - --proxy-pool-file
+      - /run/secrets/scrape_proxy_pool
+      - --artifact-url
+      - ${HOMEZ_ARTIFACT_ENDPOINT:?set private NAS artifact endpoint}
+      - --artifact-token-file
+      - /run/secrets/artifact_worker_vps_gratka
     secrets:
       - scrape_worker_vps_gratka
+      - artifact_worker_vps_gratka
+      - scrape_proxy_pool
 
   scrape-worker-vps-morizon:
     <<: *concurrent-worker
@@ -74,15 +101,25 @@ services:
       - --deployment
       - vps
       - --worker-id
-      - scrape-worker-vps-morizon
+      - scrape-worker-vps-morizon-${HOMEZ_SCRAPE_WORKER_SLOT:?set immutable release slot}
       - --coordinator-url
       - http://web:8000
       - --token-file
       - /run/secrets/scrape_worker_vps_morizon
       - --heartbeat-file
       - /tmp/scrape-heartbeat
+      - --dependency-lock-file
+      - /app/release/requirements.lock
+      - --proxy-pool-file
+      - /run/secrets/scrape_proxy_pool
+      - --artifact-url
+      - ${HOMEZ_ARTIFACT_ENDPOINT:?set private NAS artifact endpoint}
+      - --artifact-token-file
+      - /run/secrets/artifact_worker_vps_morizon
     secrets:
       - scrape_worker_vps_morizon
+      - artifact_worker_vps_morizon
+      - scrape_proxy_pool
 
   scrape-worker-vps-otodom:
     <<: *concurrent-worker
@@ -95,15 +132,25 @@ services:
       - --deployment
       - vps
       - --worker-id
-      - scrape-worker-vps-otodom
+      - scrape-worker-vps-otodom-${HOMEZ_SCRAPE_WORKER_SLOT:?set immutable release slot}
       - --coordinator-url
       - http://web:8000
       - --token-file
       - /run/secrets/scrape_worker_vps_otodom
       - --heartbeat-file
       - /tmp/scrape-heartbeat
+      - --dependency-lock-file
+      - /app/release/requirements.lock
+      - --proxy-pool-file
+      - /run/secrets/scrape_proxy_pool
+      - --artifact-url
+      - ${HOMEZ_ARTIFACT_ENDPOINT:?set private NAS artifact endpoint}
+      - --artifact-token-file
+      - /run/secrets/artifact_worker_vps_otodom
     secrets:
       - scrape_worker_vps_otodom
+      - artifact_worker_vps_otodom
+      - scrape_proxy_pool
 
   scrape-worker-vps-olx:
     <<: *concurrent-worker
@@ -116,15 +163,25 @@ services:
       - --deployment
       - vps
       - --worker-id
-      - scrape-worker-vps-olx
+      - scrape-worker-vps-olx-${HOMEZ_SCRAPE_WORKER_SLOT:?set immutable release slot}
       - --coordinator-url
       - http://web:8000
       - --token-file
       - /run/secrets/scrape_worker_vps_olx
       - --heartbeat-file
       - /tmp/scrape-heartbeat
+      - --dependency-lock-file
+      - /app/release/requirements.lock
+      - --proxy-pool-file
+      - /run/secrets/scrape_proxy_pool
+      - --artifact-url
+      - ${HOMEZ_ARTIFACT_ENDPOINT:?set private NAS artifact endpoint}
+      - --artifact-token-file
+      - /run/secrets/artifact_worker_vps_olx
     secrets:
       - scrape_worker_vps_olx
+      - artifact_worker_vps_olx
+      - scrape_proxy_pool
 
 networks:
   concurrent-scraper-control:
@@ -132,6 +189,9 @@ networks:
   concurrent-scraper-egress:
     driver: bridge
 secrets:
+  scrape_coordinator_credentials:
+    file: >-
+      ${HOMEZ_SECRETS_DIR:?set secrets dir}/scrape-coordinator-credentials.json
   scrape_worker_vps_gratka:
     file: ${HOMEZ_SECRETS_DIR:?set secrets dir}/scrape-worker-vps-gratka-token
   scrape_worker_vps_morizon:
@@ -140,3 +200,18 @@ secrets:
     file: ${HOMEZ_SECRETS_DIR:?set secrets dir}/scrape-worker-vps-otodom-token
   scrape_worker_vps_olx:
     file: ${HOMEZ_SECRETS_DIR:?set secrets dir}/scrape-worker-vps-olx-token
+  artifact_worker_vps_gratka:
+    file: >-
+      ${HOMEZ_SECRETS_DIR:?set secrets dir}/artifact-worker-vps-gratka-token
+  artifact_worker_vps_morizon:
+    file: >-
+      ${HOMEZ_SECRETS_DIR:?set secrets dir}/artifact-worker-vps-morizon-token
+  artifact_worker_vps_otodom:
+    file: >-
+      ${HOMEZ_SECRETS_DIR:?set secrets dir}/artifact-worker-vps-otodom-token
+  artifact_worker_vps_olx:
+    file: >-
+      ${HOMEZ_SECRETS_DIR:?set secrets dir}/artifact-worker-vps-olx-token
+  scrape_proxy_pool:
+    file: >-
+      ${HOMEZ_SECRETS_DIR:?set secrets dir}/scrape-proxy-pool.json

@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import cast
 
-from homefinder.parser_releases import content_addressed_release_hash
+from homefinder.parser_release_identity import content_addressed_release_hash
 from homefinder.parsers import contracts as parser_contracts
 from homefinder.parsers.contracts import DECLARED_FIELDS, MAX_PAGE_BYTES, Parser, Portal
 

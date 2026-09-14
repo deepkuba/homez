@@ -253,8 +253,11 @@ class ScrapeWorker:
 
 
 def main() -> int:
+    from homefinder.artifacts.client import HttpArtifactWriter
+    from homefinder.parser_releases.package import load_packaged_parser
     from homefinder.scraper.coordinator import HttpCoordinatorClient
-    from homefinder.scraper.transport import DisabledPageTransport
+    from homefinder.scraper.http_connector import HttpResponseRequest
+    from homefinder.scraper.transport import BoundedPageTransport
 
     parser = argparse.ArgumentParser(description="Source-pinned queued scrape worker")
     parser.add_argument(
@@ -265,6 +268,14 @@ def main() -> int:
     parser.add_argument("--coordinator-url", required=True)
     parser.add_argument("--token-file", type=Path, required=True)
     parser.add_argument("--heartbeat-file", type=Path, required=True)
+    parser.add_argument(
+        "--dependency-lock-file",
+        type=Path,
+        default=Path("/app/release/requirements.lock"),
+    )
+    parser.add_argument("--proxy-pool-file", type=Path, required=True)
+    parser.add_argument("--artifact-url", required=True)
+    parser.add_argument("--artifact-token-file", type=Path, required=True)
     args = parser.parse_args()
     stop = Event()
     install_stop_signals(stop)
@@ -275,13 +286,20 @@ def main() -> int:
             args.worker_id, cast(Portal, args.source), args.deployment
         ),
     )
+    source = cast(Portal, args.source)
+    packaged = load_packaged_parser(
+        source, dependency_lock_file=args.dependency_lock_file
+    )
     ScrapeWorker(
-        source=cast(Portal, args.source),
+        source=source,
         coordinator=coordinator,
-        transport=DisabledPageTransport(),
-        parsers={},
+        transport=BoundedPageTransport(
+            request=HttpResponseRequest(args.proxy_pool_file)
+        ),
+        parsers={packaged.release_hash: packaged.parser},
         stop=stop,
         heartbeat_file=args.heartbeat_file,
+        artifact_writer=HttpArtifactWriter(args.artifact_url, args.artifact_token_file),
     ).run()
     return 0
 

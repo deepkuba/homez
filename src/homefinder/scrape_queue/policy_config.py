@@ -1,5 +1,6 @@
 """Bounded, reviewed coordinator policy configuration."""
 
+import re
 from dataclasses import dataclass
 from datetime import timedelta
 from pathlib import Path
@@ -32,11 +33,19 @@ class _PolicyFile(BaseModel):
     model_config = ConfigDict(extra="forbid", hide_input_in_errors=True)
 
     billing_cycle_anchor_day: int = Field(ge=1, le=28)
+    proxy_route_ids: tuple[str, ...] = Field(default=(), max_length=64)
     portals: dict[Portal, _PortalPolicy]
 
     @model_validator(mode="after")
     def require_all_portals(self) -> "_PolicyFile":
-        if set(self.portals) != PORTALS:
+        if (
+            set(self.portals) != PORTALS
+            or len(set(self.proxy_route_ids)) != len(self.proxy_route_ids)
+            or any(
+                re.fullmatch(r"[a-zA-Z0-9_-]{1,64}", route) is None
+                for route in self.proxy_route_ids
+            )
+        ):
             raise ValueError("source budget policy must contain all portals")
         return self
 
@@ -45,6 +54,7 @@ class _PolicyFile(BaseModel):
 class SourceBudgetConfiguration:
     policies: dict[str, SourceBudgetPolicy]
     billing_cycle_anchor_day: int
+    proxy_route_ids: tuple[str, ...]
 
 
 def load_source_budget_configuration(path: Path) -> SourceBudgetConfiguration:
@@ -63,4 +73,5 @@ def load_source_budget_configuration(path: Path) -> SourceBudgetConfiguration:
             for source, value in model.portals.items()
         },
         billing_cycle_anchor_day=model.billing_cycle_anchor_day,
+        proxy_route_ids=model.proxy_route_ids,
     )

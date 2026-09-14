@@ -16,6 +16,7 @@ def source_budget_policy_file(tmp_path):
         json.dumps(
             {
                 "billing_cycle_anchor_day": 15,
+                "proxy_route_ids": [],
                 "portals": {
                     source: {
                         "minimum_interval_seconds": 10,

@@ -292,6 +292,7 @@ and must contain exactly Gratka, Morizon, Otodom, and OLX:
 ```json
 {
   "billing_cycle_anchor_day": 15,
+  "proxy_route_ids": ["route-a"],
   "portals": {
     "gratka": {"minimum_interval_seconds": 10, "daily_attempt_limit": 1100, "daily_success_limit": 1000, "policy_version": "reviewed-2026-09"},
     "morizon": {"minimum_interval_seconds": 10, "daily_attempt_limit": 1100, "daily_success_limit": 1000, "policy_version": "reviewed-2026-09"},

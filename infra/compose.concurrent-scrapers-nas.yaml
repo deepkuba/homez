@@ -1,3 +1,6 @@
+---
+# Required-variable expressions and immutable worker IDs must remain unbroken.
+# yamllint disable rule:line-length
 # Opt-in topology; source pacing and release deployment gates remain closed.
 x-concurrent-worker: &concurrent-worker
   image: >-
@@ -46,15 +49,25 @@ services:
       - --deployment
       - nas
       - --worker-id
-      - scrape-worker-nas-gratka
+      - scrape-worker-nas-gratka-${HOMEZ_SCRAPE_WORKER_SLOT:?set immutable release slot}
       - --coordinator-url
       - ${HOMEZ_SCRAPE_COORDINATOR_URL:?set private tailnet coordinator URL}
       - --token-file
       - /run/secrets/scrape_worker_nas_gratka
       - --heartbeat-file
       - /tmp/scrape-heartbeat
+      - --dependency-lock-file
+      - /app/release/requirements.lock
+      - --proxy-pool-file
+      - /run/secrets/scrape_proxy_pool
+      - --artifact-url
+      - ${HOMEZ_ARTIFACT_ENDPOINT:?set private NAS artifact endpoint}
+      - --artifact-token-file
+      - /run/secrets/artifact_worker_nas_gratka
     secrets:
       - scrape_worker_nas_gratka
+      - artifact_worker_nas_gratka
+      - scrape_proxy_pool
 
   scrape-worker-nas-morizon:
     <<: *concurrent-worker
@@ -67,15 +80,25 @@ services:
       - --deployment
       - nas
       - --worker-id
-      - scrape-worker-nas-morizon
+      - scrape-worker-nas-morizon-${HOMEZ_SCRAPE_WORKER_SLOT:?set immutable release slot}
       - --coordinator-url
       - ${HOMEZ_SCRAPE_COORDINATOR_URL:?set private tailnet coordinator URL}
       - --token-file
       - /run/secrets/scrape_worker_nas_morizon
       - --heartbeat-file
       - /tmp/scrape-heartbeat
+      - --dependency-lock-file
+      - /app/release/requirements.lock
+      - --proxy-pool-file
+      - /run/secrets/scrape_proxy_pool
+      - --artifact-url
+      - ${HOMEZ_ARTIFACT_ENDPOINT:?set private NAS artifact endpoint}
+      - --artifact-token-file
+      - /run/secrets/artifact_worker_nas_morizon
     secrets:
       - scrape_worker_nas_morizon
+      - artifact_worker_nas_morizon
+      - scrape_proxy_pool
 
   scrape-worker-nas-otodom:
     <<: *concurrent-worker
@@ -88,15 +111,25 @@ services:
       - --deployment
       - nas
       - --worker-id
-      - scrape-worker-nas-otodom
+      - scrape-worker-nas-otodom-${HOMEZ_SCRAPE_WORKER_SLOT:?set immutable release slot}
       - --coordinator-url
       - ${HOMEZ_SCRAPE_COORDINATOR_URL:?set private tailnet coordinator URL}
       - --token-file
       - /run/secrets/scrape_worker_nas_otodom
       - --heartbeat-file
       - /tmp/scrape-heartbeat
+      - --dependency-lock-file
+      - /app/release/requirements.lock
+      - --proxy-pool-file
+      - /run/secrets/scrape_proxy_pool
+      - --artifact-url
+      - ${HOMEZ_ARTIFACT_ENDPOINT:?set private NAS artifact endpoint}
+      - --artifact-token-file
+      - /run/secrets/artifact_worker_nas_otodom
     secrets:
       - scrape_worker_nas_otodom
+      - artifact_worker_nas_otodom
+      - scrape_proxy_pool
 
   scrape-worker-nas-olx:
     <<: *concurrent-worker
@@ -109,15 +142,25 @@ services:
       - --deployment
       - nas
       - --worker-id
-      - scrape-worker-nas-olx
+      - scrape-worker-nas-olx-${HOMEZ_SCRAPE_WORKER_SLOT:?set immutable release slot}
       - --coordinator-url
       - ${HOMEZ_SCRAPE_COORDINATOR_URL:?set private tailnet coordinator URL}
       - --token-file
       - /run/secrets/scrape_worker_nas_olx
       - --heartbeat-file
       - /tmp/scrape-heartbeat
+      - --dependency-lock-file
+      - /app/release/requirements.lock
+      - --proxy-pool-file
+      - /run/secrets/scrape_proxy_pool
+      - --artifact-url
+      - ${HOMEZ_ARTIFACT_ENDPOINT:?set private NAS artifact endpoint}
+      - --artifact-token-file
+      - /run/secrets/artifact_worker_nas_olx
     secrets:
       - scrape_worker_nas_olx
+      - artifact_worker_nas_olx
+      - scrape_proxy_pool
 
 networks:
   concurrent-scraper-egress:
@@ -135,3 +178,18 @@ secrets:
   scrape_worker_nas_olx:
     file: >-
       ${HOMEZ_SCRAPER_SECRETS_DIR:?set secrets}/scrape-worker-nas-olx-token
+  artifact_worker_nas_gratka:
+    file: >-
+      ${HOMEZ_SCRAPER_SECRETS_DIR:?set secrets}/artifact-worker-nas-gratka-token
+  artifact_worker_nas_morizon:
+    file: >-
+      ${HOMEZ_SCRAPER_SECRETS_DIR:?set secrets}/artifact-worker-nas-morizon-token
+  artifact_worker_nas_otodom:
+    file: >-
+      ${HOMEZ_SCRAPER_SECRETS_DIR:?set secrets}/artifact-worker-nas-otodom-token
+  artifact_worker_nas_olx:
+    file: >-
+      ${HOMEZ_SCRAPER_SECRETS_DIR:?set secrets}/artifact-worker-nas-olx-token
+  scrape_proxy_pool:
+    file: >-
+      ${HOMEZ_SCRAPER_SECRETS_DIR:?set secrets}/scrape-proxy-pool.json

@@ -1166,6 +1166,39 @@ Evidence:
 
 Commit: `feat(scraping): add bounded direct and proxy connector`
 
+### Pre-cutover prerequisite — runnable production worker boundary
+
+Status: repository and Compose wiring complete (2026-09-14); deployment remains
+gated on production inputs and explicit authorization.
+
+Evidence:
+- Added `test_artifact_client_streams_exact_bytes_with_source_scope` first and
+  confirmed no remote artifact writer existed. VPS and NAS workers now stream
+  the exact in-memory parser bytes once to the private NAS service using a
+  source-scoped token; failures expose no bytes or credentials and preserve the
+  existing `artifact-unavailable` partial-result path without refetching.
+- The worker entry point composes the content-verified source parser, bounded
+  direct/proxy connector, central permit/outcome client, and NAS artifact writer.
+  Its immutable release-slot suffix permits active and candidate images to run
+  concurrently with distinct identities; only a release matching queued active
+  work can claim it.
+- NAS/VPS Compose workers remain opt-in and read-only with existing CPU, memory,
+  PID, capability, and health limits. Each receives only its coordinator token,
+  source-scoped artifact token, and local proxy-pool secret. The VPS web overlay
+  mounts the reviewed source-budget file and hashed coordinator identity
+  registry; workers receive no database configuration.
+- The reviewed policy carries only opaque proxy route IDs. The coordinator
+  registers those IDs centrally, while addresses and credentials exist only in
+  each worker's secret pool. Focused artifact/package/worker/topology tests:
+  **21 passed**; both Compose models validate under local Compose v1. Ruff and
+  strict mypy pass. No service was started and no secret, live request,
+  activation, recovery release, or deployment occurred.
+- Full repository verification after runtime wiring: **522 passed**, with 19
+  PostgreSQL tests skipped because `TEST_POSTGRES_URL` is unavailable. YAML lint
+  and both merged NAS/VPS Compose configurations pass locally.
+
+Commit: `feat(scraping): wire immutable production worker runtime`
+
 ### Slice 16 — Cutover and legacy removal
 
 First failing test:

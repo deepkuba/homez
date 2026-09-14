@@ -96,6 +96,7 @@ def test_enabled_coordinator_requires_complete_source_budget_file(tmp_path) -> N
         json.dumps(
             {
                 "billing_cycle_anchor_day": 15,
+                "proxy_route_ids": ["route-a"],
                 "portals": {
                     source: {
                         "minimum_interval_seconds": 10,
@@ -117,4 +118,5 @@ def test_enabled_coordinator_requires_complete_source_budget_file(tmp_path) -> N
 
     loaded = settings.source_budget_configuration()
     assert loaded.billing_cycle_anchor_day == 15
+    assert loaded.proxy_route_ids == ("route-a",)
     assert set(loaded.policies) == {"gratka", "morizon", "otodom", "olx"}

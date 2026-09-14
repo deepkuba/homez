@@ -20,7 +20,7 @@ def test_concurrent_workers_are_source_pinned_and_database_isolated(
     }
     services = compose["services"]
     assert set(services) == expected | ({"web"} if deployment == "vps" else set())
-    assert len(compose["secrets"]) == 4
+    assert len(compose["secrets"]) == (10 if deployment == "vps" else 9)
     for name in expected:
         worker = services[name]
         source = name.rsplit("-", 1)[1]
@@ -30,9 +30,19 @@ def test_concurrent_workers_are_source_pinned_and_database_isolated(
         args = dict(zip(command[3::2], command[4::2], strict=True))
         assert args["--source"] == source
         assert args["--deployment"] == deployment
-        assert args["--worker-id"] == name
+        assert args["--worker-id"] == (
+            name + "-${HOMEZ_SCRAPE_WORKER_SLOT:?set immutable release slot}"
+        )
         assert args["--token-file"] == f"/run/secrets/{secret}"
         assert args["--heartbeat-file"] == "/tmp/scrape-heartbeat"
+        assert args["--dependency-lock-file"] == "/app/release/requirements.lock"
+        assert args["--proxy-pool-file"] == "/run/secrets/scrape_proxy_pool"
+        assert args["--artifact-url"] == (
+            "${HOMEZ_ARTIFACT_ENDPOINT:?set private NAS artifact endpoint}"
+        )
+        assert args["--artifact-token-file"] == (
+            f"/run/secrets/artifact_worker_{deployment}_{source}"
+        )
         if deployment == "vps":
             assert args["--coordinator-url"] == "http://web:8000"
             assert set(worker["networks"]) == {
@@ -42,7 +52,11 @@ def test_concurrent_workers_are_source_pinned_and_database_isolated(
         else:
             assert "HOMEZ_SCRAPE_COORDINATOR_URL:?" in args["--coordinator-url"]
             assert worker["networks"] == ["concurrent-scraper-egress"]
-        assert worker["secrets"] == [secret]
+        assert worker["secrets"] == [
+            secret,
+            f"artifact_worker_{deployment}_{source}",
+            "scrape_proxy_pool",
+        ]
         assert compose["secrets"][secret]["file"].endswith(f"/{name}-token")
         assert worker["profiles"] == ["concurrent-scrapers"]
         assert worker["image"] == (
@@ -71,12 +85,29 @@ def test_concurrent_workers_are_source_pinned_and_database_isolated(
         assert not {"ports", "volumes", "env_file", "environment"} & worker.keys()
     assert "DATABASE" not in raw
     assert "FALLBACK" not in raw
-    assert "ENABLED" not in raw
+    if deployment == "nas":
+        assert "ENABLED" not in raw
     if deployment == "vps":
         assert compose["networks"]["concurrent-scraper-control"]["internal"] is True
-        assert services["web"] == {
-            "networks": ["backend", "frontend", "concurrent-scraper-control"]
+        web = services["web"]
+        assert web["networks"] == [
+            "backend",
+            "frontend",
+            "concurrent-scraper-control",
+        ]
+        assert web["environment"] == {
+            "HOMEFINDER_CONCURRENT_SCRAPING_ENABLED": "true",
+            "HOMEFINDER_COORDINATOR_CREDENTIALS_FILE": (
+                "/run/secrets/scrape_coordinator_credentials"
+            ),
+            "HOMEFINDER_SOURCE_BUDGET_POLICY_FILE": (
+                "/run/homefinder-config/source-budget.json"
+            ),
         }
+        assert web["secrets"] == ["scrape_coordinator_credentials"]
+        assert web["volumes"][0]["target"] == (
+            "/run/homefinder-config/source-budget.json"
+        )
 
 
 def test_ci_validates_both_concurrent_compose_models() -> None:

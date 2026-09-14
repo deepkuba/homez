@@ -1,6 +1,5 @@
 """Immutable parser releases and portal-scoped manual activation."""
 
-import hashlib
 import json
 import re
 from collections.abc import Callable
@@ -20,6 +19,7 @@ from homefinder.catalog.orm import (
     SourceRecord,
 )
 from homefinder.parser_recovery import ParserRecoveryRepository
+from homefinder.parser_release_identity import content_addressed_release_hash
 from homefinder.parsers.contracts import Portal
 
 _HASH = re.compile(r"[0-9a-f]{64}")
@@ -291,30 +291,6 @@ def _aware(value: datetime) -> None:
 def _audit_text(actor: str, detail: str) -> None:
     if not 1 <= len(actor) <= 200 or not 1 <= len(detail) <= 1000:
         raise ValueError("bounded activation audit fields required")
-
-
-def content_addressed_release_hash(
-    source: Portal,
-    parser_content_hash: str,
-    configuration_hash: str,
-    dependency_lock_hash: str,
-) -> str:
-    if source not in {"gratka", "morizon", "otodom", "olx"} or any(
-        _HASH.fullmatch(value) is None
-        for value in (parser_content_hash, configuration_hash, dependency_lock_hash)
-    ):
-        raise ValueError("invalid content-addressed release input")
-    payload = json.dumps(
-        {
-            "source": source,
-            "parser_content_hash": parser_content_hash,
-            "configuration_hash": configuration_hash,
-            "dependency_lock_hash": dependency_lock_hash,
-        },
-        sort_keys=True,
-        separators=(",", ":"),
-    ).encode()
-    return hashlib.sha256(payload).hexdigest()
 
 
 __all__ = [
