@@ -1309,6 +1309,29 @@ First failing test:
 Exit: both deployments concurrently consume the central queue, no legacy
 fallback is reachable, all observability is live, and activation remains manual.
 
+### Repository completion checkpoint — 2026-09-17
+
+Status: all ADR-authorized work that can be completed without production-only
+inputs or live authority is implemented and committed. Slice 16 itself remains
+open because its required rollout evidence must precede legacy removal.
+
+Evidence:
+- Full repository suite: **542 passed**, with 19 PostgreSQL tests skipped because
+  `TEST_POSTGRES_URL` is unavailable. Ruff formatting/lint, strict mypy, fixture
+  safety, dependency audit, YAML lint, SQLite migration up/down/up, and Alembic
+  drift checks pass.
+- Dark NAS and VPS worker overlays, including the bounded recovery workers,
+  validate with installed Compose v1. The artifact overlay still requires
+  Compose v2 because v1 rejects its existing `create_host_path` contract.
+- A disposable PostGIS service and immutable image build could not run because
+  this host cannot access the Docker daemon and has no Compose v2 plugin. These
+  remain CI gates rather than repository implementation gaps.
+- Production-only inputs still gate the distinct active/candidate benchmark
+  service, parser evidence, service identities, secrets, alert delivery, clean
+  restore evidence, portal rollout, activation, recovery release, and legacy
+  removal. The repository supplies fail-closed contracts and synthetic rehearsal
+  paths for each; it does not fabricate production evidence.
+
 Commit: `feat(scraping): complete concurrent worker cutover`
 
 ## Security review gate
