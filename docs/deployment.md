@@ -257,6 +257,12 @@ their `HOMEZ_SCRAPE_WORKER_SLOT` values must differ. Render both projects and
 confirm their worker IDs, image digests, secrets, private routes, and resource
 limits before starting either one.
 
+The NAS overlay also defines four source-pinned artifact-recovery processes.
+Provision a distinct `recovery-worker-nas-<portal>-token` coordinator identity
+for each. These processes receive no proxy pool and no static artifact token;
+they can read only the exact object authorized by the signed capability returned
+for their current lease.
+
 Do not start these workers until the artifact service, central policy, identity
 registries, proxy billing anchor, immutable release records, and rollback image
 are reviewed together. Starting a worker can consume active queued tasks. Parser

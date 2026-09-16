@@ -39,8 +39,15 @@ def test_artifact_recovery_worker_replays_verified_bytes_without_network() -> No
     events: list[object] = []
 
     class Coordinator:
+        def register(self, releases, healthy=True):
+            events.append(("register", releases, healthy))
+
         def claim_artifact_recovery(self):
             return lease
+
+        def heartbeat(self, claimed):
+            events.append(("heartbeat", claimed))
+            return claimed
 
         def replay_input(self, claimed):
             assert claimed is lease
@@ -70,11 +77,13 @@ def test_artifact_recovery_worker_replays_verified_bytes_without_network() -> No
         coordinator=Coordinator(),
         read_artifact=lambda artifact_id, artifact_token: body,
         parsers={"a" * 64: Parser()},
+        clock=lambda: NOW,
     )
 
     assert worker.run_once() is True
-    assert len(events) == 1
-    completed_lease, result = events[0]
+    assert events[0] == ("register", ("a" * 64,), True)
+    assert events[1] == ("heartbeat", lease)
+    completed_lease, result = events[2]
     assert completed_lease is lease
     assert result.capture_id == capture_id
     assert result.facts.title == "Recovered synthetic page"

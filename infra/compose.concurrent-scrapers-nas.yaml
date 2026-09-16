@@ -37,6 +37,12 @@ x-concurrent-worker: &concurrent-worker
   networks:
     - concurrent-scraper-egress
 
+x-artifact-recovery-worker: &artifact-recovery-worker
+  <<: *concurrent-worker
+  pids_limit: 64
+  mem_limit: 128m
+  cpus: 0.25
+
 services:
   scrape-worker-nas-gratka:
     <<: *concurrent-worker
@@ -162,6 +168,98 @@ services:
       - artifact_worker_nas_olx
       - scrape_proxy_pool
 
+  recovery-worker-nas-gratka:
+    <<: *artifact-recovery-worker
+    command:
+      - python
+      - -m
+      - homefinder.artifact_recovery_worker
+      - --source
+      - gratka
+      - --worker-id
+      - recovery-worker-nas-gratka-${HOMEZ_SCRAPE_WORKER_SLOT:?set immutable release slot}
+      - --coordinator-url
+      - ${HOMEZ_SCRAPE_COORDINATOR_URL:?set private tailnet coordinator URL}
+      - --token-file
+      - /run/secrets/recovery_worker_nas_gratka
+      - --artifact-url
+      - ${HOMEZ_ARTIFACT_ENDPOINT:?set private NAS artifact endpoint}
+      - --heartbeat-file
+      - /tmp/scrape-heartbeat
+      - --dependency-lock-file
+      - /app/release/requirements.lock
+    secrets:
+      - recovery_worker_nas_gratka
+
+  recovery-worker-nas-morizon:
+    <<: *artifact-recovery-worker
+    command:
+      - python
+      - -m
+      - homefinder.artifact_recovery_worker
+      - --source
+      - morizon
+      - --worker-id
+      - recovery-worker-nas-morizon-${HOMEZ_SCRAPE_WORKER_SLOT:?set immutable release slot}
+      - --coordinator-url
+      - ${HOMEZ_SCRAPE_COORDINATOR_URL:?set private tailnet coordinator URL}
+      - --token-file
+      - /run/secrets/recovery_worker_nas_morizon
+      - --artifact-url
+      - ${HOMEZ_ARTIFACT_ENDPOINT:?set private NAS artifact endpoint}
+      - --heartbeat-file
+      - /tmp/scrape-heartbeat
+      - --dependency-lock-file
+      - /app/release/requirements.lock
+    secrets:
+      - recovery_worker_nas_morizon
+
+  recovery-worker-nas-otodom:
+    <<: *artifact-recovery-worker
+    command:
+      - python
+      - -m
+      - homefinder.artifact_recovery_worker
+      - --source
+      - otodom
+      - --worker-id
+      - recovery-worker-nas-otodom-${HOMEZ_SCRAPE_WORKER_SLOT:?set immutable release slot}
+      - --coordinator-url
+      - ${HOMEZ_SCRAPE_COORDINATOR_URL:?set private tailnet coordinator URL}
+      - --token-file
+      - /run/secrets/recovery_worker_nas_otodom
+      - --artifact-url
+      - ${HOMEZ_ARTIFACT_ENDPOINT:?set private NAS artifact endpoint}
+      - --heartbeat-file
+      - /tmp/scrape-heartbeat
+      - --dependency-lock-file
+      - /app/release/requirements.lock
+    secrets:
+      - recovery_worker_nas_otodom
+
+  recovery-worker-nas-olx:
+    <<: *artifact-recovery-worker
+    command:
+      - python
+      - -m
+      - homefinder.artifact_recovery_worker
+      - --source
+      - olx
+      - --worker-id
+      - recovery-worker-nas-olx-${HOMEZ_SCRAPE_WORKER_SLOT:?set immutable release slot}
+      - --coordinator-url
+      - ${HOMEZ_SCRAPE_COORDINATOR_URL:?set private tailnet coordinator URL}
+      - --token-file
+      - /run/secrets/recovery_worker_nas_olx
+      - --artifact-url
+      - ${HOMEZ_ARTIFACT_ENDPOINT:?set private NAS artifact endpoint}
+      - --heartbeat-file
+      - /tmp/scrape-heartbeat
+      - --dependency-lock-file
+      - /app/release/requirements.lock
+    secrets:
+      - recovery_worker_nas_olx
+
 networks:
   concurrent-scraper-egress:
     driver: bridge
@@ -193,3 +291,15 @@ secrets:
   scrape_proxy_pool:
     file: >-
       ${HOMEZ_SCRAPER_SECRETS_DIR:?set secrets}/scrape-proxy-pool.json
+  recovery_worker_nas_gratka:
+    file: >-
+      ${HOMEZ_SCRAPER_SECRETS_DIR:?set secrets}/recovery-worker-nas-gratka-token
+  recovery_worker_nas_morizon:
+    file: >-
+      ${HOMEZ_SCRAPER_SECRETS_DIR:?set secrets}/recovery-worker-nas-morizon-token
+  recovery_worker_nas_otodom:
+    file: >-
+      ${HOMEZ_SCRAPER_SECRETS_DIR:?set secrets}/recovery-worker-nas-otodom-token
+  recovery_worker_nas_olx:
+    file: >-
+      ${HOMEZ_SCRAPER_SECRETS_DIR:?set secrets}/recovery-worker-nas-olx-token

@@ -182,6 +182,10 @@ a static recovery credential. Keep the Ed25519 private key on the VPS
 coordinator and only its public key in the NAS artifact service. The recovery
 worker receives the capability with leased replay metadata and cannot reuse it
 for another artifact or after lease expiry.
+The four recovery processes are source pinned and separately resource limited.
+They have coordinator and artifact-service connectivity but contain no portal
+transport or proxy configuration. Keep their coordinator tokens distinct from
+live scraper tokens.
 Never reuse the shared legacy scraper token as an artifact identity or pass
 the NAS wrapping key to a worker or the VPS.
 

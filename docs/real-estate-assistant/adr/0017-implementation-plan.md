@@ -897,6 +897,15 @@ Evidence:
   existing `create_host_path` option, so Compose v2 remains its CI gate. No key
   was generated or installed, no capability was issued outside synthetic tests,
   and no recovery process or live replay ran.
+- Added the runnable NAS artifact-recovery processes after a focused worker test
+  first failed on missing release registration and lease renewal. Each portal
+  has a separate source-pinned process with its own coordinator identity, 0.25
+  CPU, 128 MiB memory, no proxy configuration, no static artifact credential,
+  and no portal transport. The process advertises only its immutable packaged
+  release, renews its lease while reading/parsing, verifies the 2 MB content
+  hash, and submits through the fenced replay endpoint. Focused worker and
+  topology tests: **4 passed**. Deployment identities and starting the opt-in
+  profile remain operator gates; no recovery task was claimed.
 
 First failing test:
 `tests/integration/test_parser_recovery_postgres.py::test_activation_replays_only_newest_capture_without_fetch`.

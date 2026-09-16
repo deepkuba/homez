@@ -18,9 +18,19 @@ def test_concurrent_workers_are_source_pinned_and_database_isolated(
         f"scrape-worker-{deployment}-{source}"
         for source in ("gratka", "morizon", "otodom", "olx")
     }
+    recovery = (
+        {
+            f"recovery-worker-nas-{source}"
+            for source in ("gratka", "morizon", "otodom", "olx")
+        }
+        if deployment == "nas"
+        else set()
+    )
     services = compose["services"]
-    assert set(services) == expected | ({"web"} if deployment == "vps" else set())
-    assert len(compose["secrets"]) == (11 if deployment == "vps" else 9)
+    assert set(services) == expected | recovery | (
+        {"web"} if deployment == "vps" else set()
+    )
+    assert len(compose["secrets"]) == (11 if deployment == "vps" else 13)
     for name in expected:
         worker = services[name]
         source = name.rsplit("-", 1)[1]
@@ -83,6 +93,29 @@ def test_concurrent_workers_are_source_pinned_and_database_isolated(
             "90",
         ]
         assert not {"ports", "volumes", "env_file", "environment"} & worker.keys()
+    for name in recovery:
+        worker = services[name]
+        source = name.rsplit("-", 1)[1]
+        command = worker["command"]
+        assert command[:3] == [
+            "python",
+            "-m",
+            "homefinder.artifact_recovery_worker",
+        ]
+        args = dict(zip(command[3::2], command[4::2], strict=True))
+        assert args["--source"] == source
+        assert args["--worker-id"] == (
+            name + "-${HOMEZ_SCRAPE_WORKER_SLOT:?set immutable release slot}"
+        )
+        assert args["--token-file"] == f"/run/secrets/recovery_worker_nas_{source}"
+        assert args["--artifact-url"] == (
+            "${HOMEZ_ARTIFACT_ENDPOINT:?set private NAS artifact endpoint}"
+        )
+        assert "--proxy-pool-file" not in args
+        assert "--artifact-token-file" not in args
+        assert worker["secrets"] == [f"recovery_worker_nas_{source}"]
+        assert worker["cpus"] == 0.25
+        assert worker["mem_limit"] == "128m"
     assert "DATABASE" not in raw
     assert "FALLBACK" not in raw
     if deployment == "nas":
