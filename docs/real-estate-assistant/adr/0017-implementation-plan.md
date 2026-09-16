@@ -753,6 +753,20 @@ Evidence:
   the runnable service only with those production inputs and explicit deployment
   authorization. PostgreSQL migration/concurrency checks remain required in CI
   because the disposable local PostGIS installation was unavailable on this run.
+- Added a runnable network-free benchmark boundary and synthetic rehearsal on
+  2026-09-17. The runtime recomputes the frozen manifest identity, verifies each
+  content hash and artifact expiry before either parser runs, checks both parser
+  result identities, reports bounded progress, and holds an exclusive NAS lock.
+  It imports no transport, queue, ORM, or production writer. The rehearsal reads
+  only bounded manually authored fixture files with `O_NOFOLLOW`, requires both
+  manifest hashes to match the installed package, emits no detailed results,
+  and cannot create activation evidence. Focused runtime, isolation, repository,
+  and architecture tests: **19 passed**; Ruff and strict mypy pass.
+- A production benchmark Compose service remains correctly gated by the plan's
+  required authorized distinct immutable active/candidate pair and short-lived
+  manifest-scoped artifact identity. Those production inputs are unavailable;
+  no nonfunctional service, portal credential, broad artifact reader, or
+  production result writer was added.
 
 First failing test:
 `tests/unit/test_benchmark_isolation.py::test_benchmark_worker_cannot_construct_network_transport`.
