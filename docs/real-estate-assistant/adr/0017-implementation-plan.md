@@ -882,6 +882,12 @@ Evidence:
   exceeds 30 minutes, rather than relying on issuer convention. The focused
   artifact API suite is **19 passed** and the full suite is **530 passed**, with
   the same 19 unavailable PostgreSQL checks skipped.
+- The production artifact-service loader now accepts the recovery role only
+  with a nonempty exact-artifact set, one valid portal source, no benchmark
+  scope, and at most 30 minutes of remaining lifetime. Focused artifact service
+  and API tests: **36 passed**; the full suite is **531 passed**, with the same
+  19 PostgreSQL skips. Dynamic credential installation and process startup stay
+  deployment gates.
 
 First failing test:
 `tests/integration/test_parser_recovery_postgres.py::test_activation_replays_only_newest_capture_without_fetch`.

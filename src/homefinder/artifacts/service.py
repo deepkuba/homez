@@ -9,7 +9,7 @@ import re
 import stat
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager, suppress
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import cast
 
@@ -177,6 +177,22 @@ def build_app(
                     raise ValueError("invalid maintenance scope")
                 identity = ArtifactIdentity(
                     subject, "maintenance", expiry, artifact_ids=members
+                )
+            elif role == "recovery":
+                if (
+                    not members
+                    or len(members) != len(ids)
+                    or raw.get("source") not in {"olx", "otodom", "morizon", "gratka"}
+                    or raw.get("benchmark_id") is not None
+                    or expiry > now + timedelta(minutes=30)
+                ):
+                    raise ValueError("invalid recovery scope")
+                identity = ArtifactIdentity(
+                    subject,
+                    "recovery",
+                    expiry,
+                    source=cast(Portal, raw["source"]),
+                    artifact_ids=members,
                 )
             elif role == "benchmark":
                 benchmark = _safe_name(raw.get("benchmark_id"))

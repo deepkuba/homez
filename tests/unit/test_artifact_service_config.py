@@ -49,6 +49,25 @@ def test_explicit_config_builds_private_app(tmp_path):
     assert settings["audit_file"].stat().st_mode & 0o777 == 0o600
 
 
+def test_recovery_config_requires_exact_artifact_and_portal_scope(tmp_path):
+    from uuid import uuid4
+
+    settings = config(tmp_path)
+    value = json.loads(settings["credentials_file"].read_text())
+    value["credentials"]["synthetic-token"] = {
+        "subject": "recovery-gratka",
+        "role": "recovery",
+        "source": "gratka",
+        "expires_at": (datetime.now(timezone.utc) + timedelta(minutes=20)).isoformat(),
+        "artifact_ids": [str(uuid4())],
+    }
+    settings["credentials_file"].write_text(json.dumps(value))
+
+    app = build_app(**settings)
+
+    assert TestClient(app).get("/artifacts").status_code == 404
+
+
 @pytest.mark.parametrize("name", ["root", "wrapping_key_file", "credentials_file"])
 def test_insecure_permissions_fail_closed(tmp_path, name):
     settings = config(tmp_path)
