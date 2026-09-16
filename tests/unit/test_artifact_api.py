@@ -45,6 +45,13 @@ def setup_api():
             artifact_ids=frozenset({"artifact-a"}),
             benchmark_id="run-1",
         ),
+        "recovery": ArtifactIdentity(
+            "recovery-1",
+            "recovery",
+            NOW + timedelta(minutes=5),
+            source="olx",
+            artifact_ids=frozenset({"artifact-a"}),
+        ),
         "expired": ArtifactIdentity(
             "old", "maintenance", NOW, artifact_ids=frozenset({"artifact-a"})
         ),
@@ -197,6 +204,20 @@ def test_benchmark_read_requires_exact_identity_and_manifest_scope():
 
     assert response.status_code == 403
     assert store.reads == []
+
+
+def test_recovery_read_requires_exact_short_lived_source_scoped_identity():
+    client, store, audit = setup_api()
+
+    response = client.get("/artifacts/artifact-a", headers=headers("recovery"))
+
+    assert response.status_code == 200
+    assert response.content == b"synthetic raw bytes"
+    assert audit[0].subject == "recovery-1"
+    assert (
+        client.get("/artifacts/other", headers=headers("recovery")).status_code == 403
+    )
+    assert store.reads == ["artifact-a"]
 
 
 @pytest.mark.parametrize(

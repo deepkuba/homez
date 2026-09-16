@@ -24,6 +24,83 @@ def test_client_uses_bounded_private_control_requests(tmp_path):
     assert calls[1][1] == {"task_classes": ["live", "network_recovery"]}
 
 
+def test_recovery_client_uses_artifact_only_control_paths(tmp_path):
+    from datetime import datetime, timedelta, timezone
+    from uuid import uuid4
+
+    from homefinder.parsers.contracts import PageFacts, ParserResult
+    from homefinder.scrape_queue.contracts import ScrapeLease, TaskClass
+    from homefinder.scraper.coordinator import HttpCoordinatorClient
+
+    token = tmp_path / "synthetic-token"
+    token.write_text("synthetic-worker-token")
+    token.chmod(0o600)
+    now = datetime(2026, 9, 17, tzinfo=timezone.utc)
+    lease = ScrapeLease(
+        uuid4(),
+        "gratka",
+        uuid4(),
+        "https://gratka.pl/nieruchomosci/test/ob/10000001",
+        TaskClass.ARTIFACT_RECOVERY,
+        "a" * 64,
+        2,
+        uuid4(),
+        now + timedelta(minutes=1),
+        1,
+    )
+    calls = []
+    responses = iter(
+        (
+            json.dumps(
+                {
+                    **lease.__dict__,
+                    "lease_token": str(lease.lease_token),
+                    "task_id": str(lease.task_id),
+                    "snapshot_id": str(lease.snapshot_id),
+                    "task_class": lease.task_class.value,
+                    "lease_expires_at": lease.lease_expires_at.isoformat(),
+                }
+            ).encode(),
+            json.dumps(
+                {
+                    "capture_id": str(uuid4()),
+                    "artifact_id": str(uuid4()),
+                    "fetched_at": now.isoformat(),
+                    "content_hash": "b" * 64,
+                    "result_expires_at": (now + timedelta(days=1)).isoformat(),
+                }
+            ).encode(),
+            b"null",
+        )
+    )
+
+    def request(path, payload, bearer):
+        calls.append((path, payload, bearer))
+        return next(responses)
+
+    client = HttpCoordinatorClient("http://web:8000", token, request=request)
+    claimed = client.claim_artifact_recovery()
+    replay = client.replay_input(claimed)
+    client.complete_artifact_replay(
+        claimed,
+        ParserResult(
+            replay.capture_id,
+            "a" * 64,
+            "synthetic",
+            (),
+            (),
+            facts=PageFacts(title="Recovered"),
+        ),
+    )
+
+    assert [call[0] for call in calls] == [
+        "/internal/scrape/v1/artifact/claim",
+        "/internal/scrape/v1/artifact/input",
+        "/internal/scrape/v1/artifact/complete",
+    ]
+    assert all("raw" not in json.dumps(call[1]) for call in calls)
+
+
 def test_client_requests_central_network_permit(tmp_path):
     from datetime import datetime, timedelta, timezone
     from uuid import uuid4

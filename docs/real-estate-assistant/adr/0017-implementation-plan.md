@@ -866,6 +866,18 @@ Evidence:
   transport was added.
 - Full repository verification after the worker contract: **525 passed**, with
   19 PostgreSQL tests skipped because `TEST_POSTGRES_URL` is unavailable.
+- Added the scoped recovery control plane and raw-read boundary on 2026-09-17.
+  Generic live/network claims now reject artifact tasks; only a NAS deployment
+  identity can claim, inspect, or complete artifact replay. The HTTP client
+  exchanges typed metadata/results only. A separate exact-ID recovery artifact
+  identity can read one bounded object, with audit and expiry enforced by the
+  existing private artifact service. Focused coordinator, artifact, worker, and
+  recovery tests: **48 passed**.
+- Full repository verification after recovery endpoint wiring: **529 passed**,
+  with 19 PostgreSQL tests skipped because `TEST_POSTGRES_URL` is unavailable;
+  Ruff formatting/lint and strict mypy pass. Deployment still requires the
+  authorized issuer/configuration to mint the exact short-lived artifact scope
+  and a NAS recovery process. No credential was minted and no replay ran.
 
 First failing test:
 `tests/integration/test_parser_recovery_postgres.py::test_activation_replays_only_newest_capture_without_fetch`.

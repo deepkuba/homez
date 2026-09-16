@@ -22,7 +22,7 @@ class ArtifactStore(Protocol):
 @dataclass(frozen=True)
 class ArtifactIdentity:
     subject: str
-    role: Literal["worker", "maintenance", "benchmark"]
+    role: Literal["worker", "maintenance", "benchmark", "recovery"]
     expires_at: datetime
     source: Portal | None = None
     artifact_ids: frozenset[str] = frozenset()
@@ -114,12 +114,18 @@ def create_artifact_app(
     async def read(artifact_id: str, request: Request) -> Response:
         identity = authenticate(request)
         allowed = (
-            identity.role == "maintenance" and artifact_id in identity.artifact_ids
-        ) or (
-            identity.role == "benchmark"
-            and identity.benchmark_id is not None
-            and artifact_id in identity.artifact_ids
-            and artifact_id in manifests.get(identity.benchmark_id, frozenset())
+            (identity.role == "maintenance" and artifact_id in identity.artifact_ids)
+            or (
+                identity.role == "recovery"
+                and identity.source is not None
+                and artifact_id in identity.artifact_ids
+            )
+            or (
+                identity.role == "benchmark"
+                and identity.benchmark_id is not None
+                and artifact_id in identity.artifact_ids
+                and artifact_id in manifests.get(identity.benchmark_id, frozenset())
+            )
         )
         if not allowed:
             raise HTTPException(403, "Forbidden")

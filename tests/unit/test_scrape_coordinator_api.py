@@ -346,3 +346,75 @@ def test_coordinator_failure_does_not_log_result_or_database_details(
     response = client.get(PREFIX + "/status", headers=auth())
     assert response.status_code == 503
     assert "synthetic-private-database-detail" not in response.text
+
+
+def test_artifact_recovery_endpoints_are_nas_only_and_never_return_raw_bytes(
+    coordinator, monkeypatch
+):
+    from uuid import uuid4
+
+    from homefinder.scrape_queue.contracts import ArtifactReplayInput, TaskClass
+    from homefinder.scrape_queue.repository import ScrapeQueueRepository
+
+    client, repo, snapshots, _ = coordinator
+    task_id = repo.enqueue(
+        source="gratka",
+        snapshot_id=snapshots[0],
+        now=NOW,
+        task_class=TaskClass.ARTIFACT_RECOVERY,
+    )
+    captured = []
+    replay = ArtifactReplayInput(
+        uuid4(),
+        str(uuid4()),
+        NOW - timedelta(days=1),
+        "b" * 64,
+        NOW + timedelta(days=30),
+    )
+
+    monkeypatch.setattr(
+        ScrapeQueueRepository,
+        "artifact_replay_input",
+        lambda self, worker, lease, now: replay,
+    )
+    monkeypatch.setattr(
+        ScrapeQueueRepository,
+        "complete_artifact_replay",
+        lambda self, worker, lease, result, now: captured.append(result),
+    )
+
+    denied = client.post(PREFIX + "/artifact/claim", headers=auth("vps"), json={})
+    assert denied.status_code == 403
+    broad = client.post(
+        PREFIX + "/claim",
+        headers=auth(),
+        json={"task_classes": ["artifact_recovery"]},
+    )
+    assert broad.status_code == 403
+
+    claim = client.post(PREFIX + "/artifact/claim", headers=auth(), json={})
+    assert claim.status_code == 200
+    lease = claim.json()
+    assert lease["task_id"] == str(task_id)
+    response = client.post(
+        PREFIX + "/artifact/input", headers=auth(), json={"lease": lease}
+    )
+    assert response.status_code == 200
+    assert response.json()["artifact_id"] == replay.artifact_id
+    assert "raw" not in response.text
+
+    result = {
+        "capture_id": str(replay.capture_id),
+        "release_hash": "a" * 64,
+        "variant": "synthetic",
+        "candidates": [],
+        "missing_fields": [],
+        "facts": {"title": "Recovered synthetic page"},
+    }
+    completed = client.post(
+        PREFIX + "/artifact/complete",
+        headers=auth(),
+        json={"lease": lease, "result": result},
+    )
+    assert completed.status_code == 200
+    assert captured[0].facts.title == "Recovered synthetic page"

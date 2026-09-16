@@ -12,7 +12,9 @@ from homefinder.parsers.contracts import PageInput, Portal
 from homefinder.sources.gmail import read_secret_text
 
 ArtifactRequest = Callable[[str, dict[str, str], bytes, str], tuple[int, bytes]]
+ArtifactReadRequest = Callable[[str, str], tuple[int, bytes]]
 _MAX_RESPONSE_BYTES = 4096
+_MAX_ARTIFACT_BYTES = 2_000_000
 
 
 class ArtifactUnavailable(RuntimeError):
@@ -96,4 +98,70 @@ class HttpArtifactWriter:
             connection.close()
 
 
-__all__ = ["ArtifactUnavailable", "HttpArtifactWriter"]
+class HttpArtifactReader:
+    def __init__(
+        self,
+        endpoint: str,
+        token_file: Path,
+        *,
+        request: ArtifactReadRequest | None = None,
+    ) -> None:
+        parsed = urlsplit(endpoint)
+        try:
+            tailnet = ipaddress.ip_address(
+                parsed.hostname or ""
+            ) in ipaddress.ip_network("100.64.0.0/10")
+        except ValueError:
+            tailnet = False
+        if (
+            parsed.scheme not in {"http", "https"}
+            or not (tailnet or parsed.hostname == "artifacts")
+            or parsed.username is not None
+            or parsed.password is not None
+            or parsed.path not in {"", "/"}
+            or parsed.query
+            or parsed.fragment
+        ):
+            raise ValueError("artifact endpoint must be private")
+        self._host = parsed.hostname or ""
+        self._port = parsed.port
+        self._https = parsed.scheme == "https"
+        self._token_file = token_file
+        self._request = request or self._http_request
+
+    def read(self, artifact_id: str) -> bytes:
+        try:
+            artifact_id = str(UUID(artifact_id))
+            status, body = self._request(
+                f"/artifacts/{artifact_id}", read_secret_text(self._token_file)
+            )
+            if status != 200 or not 0 < len(body) <= _MAX_ARTIFACT_BYTES:
+                raise ValueError
+            return body
+        except Exception:
+            raise ArtifactUnavailable("artifact service unavailable") from None
+
+    def _http_request(self, path: str, token: str) -> tuple[int, bytes]:
+        connection = (
+            http.client.HTTPSConnection(self._host, self._port, timeout=10)
+            if self._https
+            else http.client.HTTPConnection(self._host, self._port, timeout=10)
+        )
+        try:
+            connection.request(
+                "GET",
+                path,
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "Cache-Control": "no-store",
+                },
+            )
+            response = connection.getresponse()
+            return response.status, response.read(_MAX_ARTIFACT_BYTES + 1)
+        except (OSError, http.client.HTTPException):
+            raise ArtifactUnavailable("artifact service unavailable") from None
+        finally:
+            connection.close()
+
+
+__all__ = ["ArtifactUnavailable", "HttpArtifactReader", "HttpArtifactWriter"]

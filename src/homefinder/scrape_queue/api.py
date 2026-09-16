@@ -49,7 +49,10 @@ class Credential(Payload):
 
 
 class ClaimPayload(Payload):
-    task_classes: tuple[TaskClass, ...] = tuple(TaskClass)
+    task_classes: tuple[TaskClass, ...] = (
+        TaskClass.LIVE,
+        TaskClass.NETWORK_RECOVERY,
+    )
 
 
 class CapabilityPayload(Payload):
@@ -84,7 +87,13 @@ class SuccessPayload(LeaseMutation):
 
 
 class FailurePayload(LeaseMutation):
-    code: Literal["transport-error", "parser-error", "invalid-target"]
+    code: Literal[
+        "transport-error",
+        "parser-error",
+        "invalid-target",
+        "invalid-recovery-lease",
+        "artifact-recovery-failed",
+    ]
 
 
 class DeferPayload(LeaseMutation):
@@ -152,6 +161,10 @@ class OutcomePayload(Payload):
 
 class CompletePayload(LeaseMutation):
     outcome: OutcomePayload = Field(repr=False)
+
+
+class ReplayCompletePayload(LeaseMutation):
+    result: ResultPayload = Field(repr=False)
 
 
 class NetworkOutcomePayload(LeaseMutation):
@@ -243,9 +256,50 @@ def create_coordinator_router(
     async def claim(request: Request) -> JSONResponse:
         worker = authorize(request)
         payload = await bounded_payload(request, ClaimPayload)
+        if TaskClass.ARTIFACT_RECOVERY in payload.task_classes:
+            raise HTTPException(403, "artifact recovery requires NAS identity")
         return await execute(
             lambda: repository.claim(
                 worker, task_classes=payload.task_classes, now=clock()
+            )
+        )
+
+    @router.post("/artifact/claim")
+    async def claim_artifact_recovery(request: Request) -> JSONResponse:
+        worker = authorize(request)
+        await bounded_payload(request, Payload)
+        if worker.deployment != "nas":
+            raise HTTPException(403, "artifact recovery requires NAS identity")
+        return await execute(
+            lambda: repository.claim(
+                worker, task_classes=(TaskClass.ARTIFACT_RECOVERY,), now=clock()
+            )
+        )
+
+    @router.post("/artifact/input")
+    async def artifact_replay_input(request: Request) -> JSONResponse:
+        worker = authorize(request)
+        payload = await bounded_payload(request, LeaseMutation)
+        if worker.deployment != "nas":
+            raise HTTPException(403, "artifact recovery requires NAS identity")
+        return await execute(
+            lambda: repository.artifact_replay_input(
+                worker, payload.lease.lease(), now=clock()
+            )
+        )
+
+    @router.post("/artifact/complete")
+    async def complete_artifact_replay(request: Request) -> JSONResponse:
+        worker = authorize(request)
+        payload = await bounded_payload(request, ReplayCompletePayload, maximum=128_000)
+        if worker.deployment != "nas":
+            raise HTTPException(403, "artifact recovery requires NAS identity")
+        return await execute(
+            lambda: repository.complete_artifact_replay(
+                worker,
+                payload.lease.lease(),
+                payload.result.result(),
+                now=clock(),
             )
         )
 

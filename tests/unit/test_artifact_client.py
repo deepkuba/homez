@@ -31,3 +31,26 @@ def test_artifact_client_streams_exact_bytes_with_source_scope(tmp_path: Path) -
     assert calls[0][2] == page.body
     assert calls[0][1]["X-Capture-Id"] == str(page.capture_id)
     assert "synthetic-artifact-token" not in repr(calls[0][1])
+
+
+def test_artifact_reader_is_exact_id_bounded_and_credential_scoped(
+    tmp_path: Path,
+) -> None:
+    from homefinder.artifacts.client import HttpArtifactReader
+
+    token = tmp_path / "recovery-token"
+    token.write_text("synthetic-recovery-token")
+    token.chmod(0o600)
+    artifact_id = str(uuid4())
+    calls = []
+
+    def request(path, bearer):
+        calls.append((path, bearer))
+        return 200, b"synthetic retained bytes"
+
+    body = HttpArtifactReader("http://artifacts:18105", token, request=request).read(
+        artifact_id
+    )
+
+    assert body == b"synthetic retained bytes"
+    assert calls == [(f"/artifacts/{artifact_id}", "synthetic-recovery-token")]

@@ -11,7 +11,9 @@ from urllib.parse import urlsplit
 
 from pydantic import TypeAdapter
 
+from homefinder.parsers.contracts import ParserResult
 from homefinder.scrape_queue.contracts import (
+    ArtifactReplayInput,
     CaptureOutcome,
     LostLease,
     NetworkPermit,
@@ -26,6 +28,8 @@ LEASE = TypeAdapter(ScrapeLease)
 OUTCOME = TypeAdapter(CaptureOutcome)
 PERMIT = TypeAdapter(NetworkPermit)
 DECISION = TypeAdapter(RouteDecision)
+REPLAY_INPUT = TypeAdapter(ArtifactReplayInput)
+PARSER_RESULT = TypeAdapter(ParserResult)
 MAX_CONTROL_BYTES = 128_000
 
 
@@ -130,6 +134,35 @@ class HttpCoordinatorClient:
             return LEASE.validate_json(raw)
         except ValueError:
             raise CoordinatorUnavailable("invalid coordinator lease") from None
+
+    def claim_artifact_recovery(self) -> ScrapeLease | None:
+        raw = self._call("artifact/claim", {})
+        if raw == b"null":
+            return None
+        try:
+            return LEASE.validate_json(raw)
+        except ValueError:
+            raise CoordinatorUnavailable("invalid coordinator lease") from None
+
+    def replay_input(self, lease: ScrapeLease) -> ArtifactReplayInput:
+        raw = self._call(
+            "artifact/input", {"lease": LEASE.dump_python(lease, mode="json")}
+        )
+        try:
+            return REPLAY_INPUT.validate_json(raw)
+        except ValueError:
+            raise CoordinatorUnavailable("invalid artifact replay input") from None
+
+    def complete_artifact_replay(
+        self, lease: ScrapeLease, result: ParserResult
+    ) -> None:
+        self._call(
+            "artifact/complete",
+            {
+                "lease": LEASE.dump_python(lease, mode="json"),
+                "result": PARSER_RESULT.dump_python(result, mode="json"),
+            },
+        )
 
     def heartbeat(self, lease: ScrapeLease) -> ScrapeLease:
         raw = self._call("heartbeat", {"lease": LEASE.dump_python(lease, mode="json")})
