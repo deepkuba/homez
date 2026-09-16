@@ -1267,6 +1267,16 @@ Evidence:
   for the same unavailable test database. Ruff formatting/lint, strict mypy,
   fixture safety, dependency audit, YAML lint, SQLite migration up/down/up, and
   the dark NAS/VPS Compose models pass locally; installed Compose v1 was used.
+- Expanded the deterministic cutover drills on 2026-09-17. Rollback now proves
+  an in-flight candidate result is fenced without a capture write and the peer
+  deployment resumes the same task under the restored release and epoch. Denial
+  state survives coordinator reconstruction, moves the one permitted direct
+  fallback to the peer deployment, and applies the resulting source cooldown to
+  both. The restore drill decrypts the exact dump only after displaying the
+  dated nonblocking warning and rejects damaged ciphertext before `pg_restore`.
+  Combined drill and focused policy/runtime suite: **40 passed**. The restore
+  subprocess is recorded; an actual clean PostgreSQL restore remains production
+  evidence.
 - Legacy fallback removal remains blocked by the required per-portal production
   rollout evidence. No fallback configuration was removed and no service was
   started, deployed, activated, or given recovery work.
