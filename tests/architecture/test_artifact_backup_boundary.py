@@ -26,8 +26,15 @@ def test_artifact_storage_is_opt_in_private_and_nas_local() -> None:
     assert args["--retention-interval-seconds"] == "3600"
     assert args["--wrapping-key-file"] == "/run/secrets/artifact_kek"
     assert args["--credentials-file"] == "/run/secrets/artifact_credentials"
+    assert args["--capability-public-key-file"] == (
+        "/run/secrets/artifact_capability_public_key"
+    )
     assert "environment" not in service
-    assert set(service["secrets"]) == {"artifact_kek", "artifact_credentials"}
+    assert set(service["secrets"]) == {
+        "artifact_kek",
+        "artifact_credentials",
+        "artifact_capability_public_key",
+    }
     assert compose["secrets"]["artifact_kek"]["file"] == (
         "${HOMEZ_ARTIFACT_SECRETS_DIR:?set NAS artifact secrets dir}/artifact-kek"
     )

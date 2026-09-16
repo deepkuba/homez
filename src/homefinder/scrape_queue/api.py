@@ -4,6 +4,7 @@ import hashlib
 import hmac
 import json
 from collections.abc import Callable
+from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal, TypeVar
@@ -15,6 +16,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError
 from starlette.concurrency import run_in_threadpool
 
+from homefinder.artifact_capability import ArtifactCapabilitySigner
 from homefinder.parsers.contracts import (
     FieldCandidate,
     FieldState,
@@ -182,6 +184,7 @@ def create_coordinator_router(
     repository: ScrapeQueueRepository,
     *,
     budget: SourceBudgetRepository | None = None,
+    capability_signer: ArtifactCapabilitySigner | None = None,
     credentials_file: Path,
     clock: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
 ) -> APIRouter:
@@ -282,11 +285,20 @@ def create_coordinator_router(
         payload = await bounded_payload(request, LeaseMutation)
         if worker.deployment != "nas":
             raise HTTPException(403, "artifact recovery requires NAS identity")
-        return await execute(
-            lambda: repository.artifact_replay_input(
-                worker, payload.lease.lease(), now=clock()
+
+        def authorize_replay() -> object:
+            if capability_signer is None:
+                raise RuntimeError("artifact capability signer unavailable")
+            lease = payload.lease.lease()
+            replay = repository.artifact_replay_input(worker, lease, now=clock())
+            return replace(
+                replay,
+                artifact_token=capability_signer.issue(
+                    worker=worker, lease=lease, replay=replay, now=clock()
+                ),
             )
-        )
+
+        return await execute(authorize_replay)
 
     @router.post("/artifact/complete")
     async def complete_artifact_replay(request: Request) -> JSONResponse:

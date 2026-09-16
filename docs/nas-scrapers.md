@@ -177,6 +177,11 @@ Provision the independent NAS data, audit, and secret directories and scoped
 expiring identities described in [deployment](deployment.md#optional-nas-artifact-storage-dark-by-default)
 before enabling any caller. Workers receive source-scoped upload credentials;
 maintenance and benchmark readers require separate authorized identities.
+Artifact recovery uses a coordinator-signed exact-object capability instead of
+a static recovery credential. Keep the Ed25519 private key on the VPS
+coordinator and only its public key in the NAS artifact service. The recovery
+worker receives the capability with leased replay metadata and cannot reuse it
+for another artifact or after lease expiry.
 Never reuse the shared legacy scraper token as an artifact identity or pass
 the NAS wrapping key to a worker or the VPS.
 

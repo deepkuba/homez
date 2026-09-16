@@ -116,6 +116,7 @@ class ArtifactReplayInput:
     fetched_at: datetime
     content_hash: str
     result_expires_at: datetime
+    artifact_token: str = field(default="", repr=False)
 
 
 @dataclass(frozen=True)

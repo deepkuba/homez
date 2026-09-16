@@ -225,7 +225,14 @@ non-overlapping NAS directories outside every backup source tree. Precreate
 writable data/audit directories for UID/GID 10001 with mode 0700; Compose will
 not create missing bind paths. Place `artifact-kek` and `artifact-credentials`
 in the secret directory, readable by that UID (for example root:10001, 0440).
-Do not put secret values in environment variables, Git, or command arguments.
+Provision one Ed25519 recovery-capability keypair outside the repository. Put
+only `artifact-capability-public.pem` in the NAS artifact secret directory and
+put `artifact-capability-private.pem` in the VPS application secret directory.
+The public key verifies exact-object recovery grants; it cannot mint them. The
+private key is mounted only into the coordinator web service and must never be
+copied to NAS workers, artifact storage, images, environment variables, or
+backups. Do not put secret values in environment variables, Git, or command
+arguments.
 Confirm actual host mount paths and NAS snapshot/replication exclusions before
 activation: separate Compose variable names alone do not prove host isolation.
 
@@ -236,7 +243,11 @@ a time by setting `HOMEZ_SCRAPE_WORKER_SLOT` to a safe unique name and
 `HOMEZ_SCRAPE_IMAGE_DIGEST` to that slot's image digest. Set
 `HOMEZ_ARTIFACT_ENDPOINT` to the private NAS artifact service. The VPS overlay
 also mounts `${HOMEZ_CONFIG_DIR}/source-budget.json` and reads the hashed worker
-registry from `${HOMEZ_SECRETS_DIR}/scrape-coordinator-credentials.json`.
+registry from `${HOMEZ_SECRETS_DIR}/scrape-coordinator-credentials.json`. It
+also mounts the recovery-capability private key. When a NAS recovery worker
+holds a valid artifact-recovery lease, the coordinator signs a capability for
+that exact artifact. The capability expires with the lease and never later
+than 30 minutes; the artifact service validates it with the NAS public key.
 
 Each host needs a local `scrape-proxy-pool.json` secret mapping the reviewed
 opaque route IDs to proxy URLs. Each source and deployment needs a distinct

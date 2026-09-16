@@ -878,16 +878,25 @@ Evidence:
   Ruff formatting/lint and strict mypy pass. Deployment still requires the
   authorized issuer/configuration to mint the exact short-lived artifact scope
   and a NAS recovery process. No credential was minted and no replay ran.
-- Recovery artifact credentials are now rejected server-side when their expiry
-  exceeds 30 minutes, rather than relying on issuer convention. The focused
-  artifact API suite is **19 passed** and the full suite is **530 passed**, with
-  the same 19 unavailable PostgreSQL checks skipped.
-- The production artifact-service loader now accepts the recovery role only
-  with a nonempty exact-artifact set, one valid portal source, no benchmark
-  scope, and at most 30 minutes of remaining lifetime. Focused artifact service
-  and API tests: **36 passed**; the full suite is **531 passed**, with the same
-  19 PostgreSQL skips. Dynamic credential installation and process startup stay
-  deployment gates.
+- The selected recovery authorization uses an Ed25519 coordinator capability,
+  replacing the interim static recovery credential. The signed claims bind the
+  exact artifact, portal, NAS worker, task, activation epoch, hashed lease token,
+  recovery audience, issue time, and expiry. Expiry is capped by both 30 minutes
+  and the shorter queue lease; cross-artifact reuse, tampering, wrong audience,
+  non-NAS issuance, and boundary expiry fail closed.
+- The VPS coordinator alone mounts the private signing key. The NAS artifact
+  service mounts only the public verification key, accepts the capability for
+  one audited bounded read, and keeps static recovery roles disabled. Raw bytes
+  and the signing key never enter a task, queue row, log, worker image, or NAS
+  artifact-service configuration. Focused capability, API, client, worker,
+  service-config, configuration, and topology tests: **77 passed**.
+- Full repository verification after signed-capability wiring: **532 passed**,
+  with 19 PostgreSQL tests skipped because `TEST_POSTGRES_URL` is unavailable.
+  Ruff formatting/lint, strict mypy, and the dark NAS/VPS worker Compose models
+  pass locally. Installed Compose v1 cannot validate the artifact overlay's
+  existing `create_host_path` option, so Compose v2 remains its CI gate. No key
+  was generated or installed, no capability was issued outside synthetic tests,
+  and no recovery process or live replay ran.
 
 First failing test:
 `tests/integration/test_parser_recovery_postgres.py::test_activation_replays_only_newest_capture_without_fetch`.

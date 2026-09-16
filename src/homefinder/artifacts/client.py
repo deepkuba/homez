@@ -102,7 +102,7 @@ class HttpArtifactReader:
     def __init__(
         self,
         endpoint: str,
-        token_file: Path,
+        token_file: Path | None = None,
         *,
         request: ArtifactReadRequest | None = None,
     ) -> None:
@@ -129,12 +129,19 @@ class HttpArtifactReader:
         self._token_file = token_file
         self._request = request or self._http_request
 
-    def read(self, artifact_id: str) -> bytes:
+    def read(self, artifact_id: str, capability_token: str | None = None) -> bytes:
         try:
             artifact_id = str(UUID(artifact_id))
-            status, body = self._request(
-                f"/artifacts/{artifact_id}", read_secret_text(self._token_file)
+            token = (
+                capability_token
+                if capability_token is not None
+                else read_secret_text(self._token_file)
+                if self._token_file is not None
+                else ""
             )
+            if not token:
+                raise ValueError
+            status, body = self._request(f"/artifacts/{artifact_id}", token)
             if status != 200 or not 0 < len(body) <= _MAX_ARTIFACT_BYTES:
                 raise ValueError
             return body

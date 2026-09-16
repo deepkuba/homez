@@ -49,7 +49,7 @@ def test_explicit_config_builds_private_app(tmp_path):
     assert settings["audit_file"].stat().st_mode & 0o777 == 0o600
 
 
-def test_recovery_config_requires_exact_artifact_and_portal_scope(tmp_path):
+def test_static_recovery_credentials_are_rejected(tmp_path):
     from uuid import uuid4
 
     settings = config(tmp_path)
@@ -63,9 +63,8 @@ def test_recovery_config_requires_exact_artifact_and_portal_scope(tmp_path):
     }
     settings["credentials_file"].write_text(json.dumps(value))
 
-    app = build_app(**settings)
-
-    assert TestClient(app).get("/artifacts").status_code == 404
+    with pytest.raises(ServiceConfigurationError):
+        build_app(**settings)
 
 
 @pytest.mark.parametrize("name", ["root", "wrapping_key_file", "credentials_file"])

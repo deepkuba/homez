@@ -34,6 +34,7 @@ def test_artifact_recovery_worker_replays_verified_bytes_without_network() -> No
         NOW - timedelta(days=1),
         hashlib.sha256(body).hexdigest(),
         NOW + timedelta(days=300),
+        "synthetic-capability",
     )
     events: list[object] = []
 
@@ -67,7 +68,7 @@ def test_artifact_recovery_worker_replays_verified_bytes_without_network() -> No
     worker = ArtifactRecoveryWorker(
         source="gratka",
         coordinator=Coordinator(),
-        read_artifact=lambda artifact_id: body,
+        read_artifact=lambda artifact_id, artifact_token: body,
         parsers={"a" * 64: Parser()},
     )
 

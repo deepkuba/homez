@@ -46,8 +46,11 @@ services:
         /run/secrets/scrape_coordinator_credentials
       HOMEFINDER_SOURCE_BUDGET_POLICY_FILE: >-
         /run/homefinder-config/source-budget.json
+      HOMEFINDER_ARTIFACT_CAPABILITY_PRIVATE_KEY_FILE: >-
+        /run/secrets/artifact_capability_private_key
     secrets:
       - scrape_coordinator_credentials
+      - artifact_capability_private_key
     volumes:
       - type: bind
         source: >-
@@ -189,6 +192,9 @@ networks:
   concurrent-scraper-egress:
     driver: bridge
 secrets:
+  artifact_capability_private_key:
+    file: >-
+      ${HOMEZ_SECRETS_DIR:?set secrets dir}/artifact-capability-private.pem
   scrape_coordinator_credentials:
     file: >-
       ${HOMEZ_SECRETS_DIR:?set secrets dir}/scrape-coordinator-credentials.json

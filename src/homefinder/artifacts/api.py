@@ -3,13 +3,17 @@
 import hmac
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from typing import Literal, Protocol
 from uuid import UUID
 
 from fastapi import FastAPI, HTTPException, Request, Response
 from starlette.middleware.base import RequestResponseEndpoint
 
+from homefinder.artifact_capability import (
+    ArtifactCapabilityError,
+    ArtifactCapabilityVerifier,
+)
 from homefinder.parsers.contracts import MAX_PAGE_BYTES, PageInput, Portal
 
 
@@ -43,6 +47,7 @@ def create_artifact_app(
     credentials: Mapping[str, ArtifactIdentity],
     audit: Callable[[ArtifactReadAudit], None],
     frozen_manifests: Mapping[str, frozenset[str]] | None = None,
+    capability_verifier: ArtifactCapabilityVerifier | None = None,
     clock: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
 ) -> FastAPI:
     """Freeze supplied scopes and fail closed if audit persistence is unavailable."""
@@ -60,7 +65,9 @@ def create_artifact_app(
         response.headers["Cache-Control"] = "no-store"
         return response
 
-    def authenticate(request: Request) -> ArtifactIdentity:
+    def authenticate(
+        request: Request, *, artifact_id: str | None = None
+    ) -> ArtifactIdentity:
         authorization = request.headers.get("authorization", "")
         scheme, _, supplied = authorization.partition(" ")
         identity = None
@@ -68,14 +75,24 @@ def create_artifact_app(
             for token, candidate in identities.items():
                 if hmac.compare_digest(token.encode(), supplied.encode()):
                     identity = candidate
+        if identity is None and artifact_id is not None and capability_verifier:
+            try:
+                grant = capability_verifier.verify(
+                    supplied, artifact_id=artifact_id, now=clock()
+                )
+                identity = ArtifactIdentity(
+                    grant.subject,
+                    "recovery",
+                    grant.expires_at,
+                    source=grant.source,
+                    artifact_ids=frozenset({grant.artifact_id}),
+                )
+            except ArtifactCapabilityError:
+                pass
         if (
             identity is None
             or identity.expires_at.utcoffset() is None
             or identity.expires_at <= clock()
-            or (
-                identity.role == "recovery"
-                and identity.expires_at > clock() + timedelta(minutes=30)
-            )
         ):
             raise HTTPException(401, "Unauthorized")
         return identity
@@ -116,14 +133,10 @@ def create_artifact_app(
 
     @app.get("/artifacts/{artifact_id}")
     async def read(artifact_id: str, request: Request) -> Response:
-        identity = authenticate(request)
+        identity = authenticate(request, artifact_id=artifact_id)
         allowed = (
             (identity.role == "maintenance" and artifact_id in identity.artifact_ids)
-            or (
-                identity.role == "recovery"
-                and identity.source is not None
-                and artifact_id in identity.artifact_ids
-            )
+            or (identity.role == "recovery" and artifact_id in identity.artifact_ids)
             or (
                 identity.role == "benchmark"
                 and identity.benchmark_id is not None

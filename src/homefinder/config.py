@@ -55,6 +55,7 @@ class Settings(BaseSettings):
     backup_key_file: Path | None = None
     concurrent_scraping_enabled: bool = False
     coordinator_credentials_file: Path | None = None
+    artifact_capability_private_key_file: Path | None = None
     source_budget_policy_file: Path | None = None
     scrape_lease_seconds: int = 60
     scrape_heartbeat_seconds: int = 20

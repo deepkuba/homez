@@ -45,13 +45,6 @@ def setup_api():
             artifact_ids=frozenset({"artifact-a"}),
             benchmark_id="run-1",
         ),
-        "recovery": ArtifactIdentity(
-            "recovery-1",
-            "recovery",
-            NOW + timedelta(minutes=5),
-            source="olx",
-            artifact_ids=frozenset({"artifact-a"}),
-        ),
         "expired": ArtifactIdentity(
             "old", "maintenance", NOW, artifact_ids=frozenset({"artifact-a"})
         ),
@@ -206,42 +199,60 @@ def test_benchmark_read_requires_exact_identity_and_manifest_scope():
     assert store.reads == []
 
 
-def test_recovery_read_requires_exact_short_lived_source_scoped_identity():
-    client, store, audit = setup_api()
+def test_recovery_read_accepts_only_exact_signed_coordinator_capability():
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
-    response = client.get("/artifacts/artifact-a", headers=headers("recovery"))
-
-    assert response.status_code == 200
-    assert response.content == b"synthetic raw bytes"
-    assert audit[0].subject == "recovery-1"
-    assert (
-        client.get("/artifacts/other", headers=headers("recovery")).status_code == 403
+    from homefinder.artifact_capability import (
+        ArtifactCapabilitySigner,
+        ArtifactCapabilityVerifier,
     )
-    assert store.reads == ["artifact-a"]
+    from homefinder.scrape_queue.contracts import (
+        ArtifactReplayInput,
+        ScrapeLease,
+        TaskClass,
+        WorkerIdentity,
+    )
 
-
-def test_recovery_read_rejects_credential_valid_beyond_thirty_minutes():
     store = Store()
-    identity = ArtifactIdentity(
-        "recovery-long-lived",
-        "recovery",
-        NOW + timedelta(minutes=31),
-        source="olx",
-        artifact_ids=frozenset({"artifact-a"}),
+    audit = []
+    private = Ed25519PrivateKey.generate()
+    replay = ArtifactReplayInput(
+        uuid4(), "artifact-a", NOW, "a" * 64, NOW + timedelta(days=1)
+    )
+    lease = ScrapeLease(
+        uuid4(),
+        "olx",
+        uuid4(),
+        "https://www.olx.pl/d/oferta/synthetic-ID10000001.html",
+        TaskClass.ARTIFACT_RECOVERY,
+        "a" * 64,
+        2,
+        uuid4(),
+        NOW + timedelta(minutes=2),
+        1,
+    )
+    token = ArtifactCapabilitySigner(private).issue(
+        worker=WorkerIdentity("recovery-nas-olx", "olx", "nas"),
+        lease=lease,
+        replay=replay,
+        now=NOW,
     )
     app = create_artifact_app(
         store,
-        credentials={"recovery-token": identity},
-        audit=lambda event: None,
+        credentials={},
+        audit=audit.append,
+        capability_verifier=ArtifactCapabilityVerifier(private.public_key()),
         clock=lambda: NOW,
     )
 
-    response = TestClient(app).get(
-        "/artifacts/artifact-a", headers=headers("recovery-token")
-    )
+    client = TestClient(app)
+    response = client.get("/artifacts/artifact-a", headers=headers(token))
 
-    assert response.status_code == 401
-    assert store.reads == []
+    assert response.status_code == 200
+    assert response.content == b"synthetic raw bytes"
+    assert audit[0].subject == "recovery-nas-olx"
+    assert client.get("/artifacts/other", headers=headers(token)).status_code == 401
+    assert store.reads == ["artifact-a"]
 
 
 @pytest.mark.parametrize(

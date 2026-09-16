@@ -20,7 +20,7 @@ def test_concurrent_workers_are_source_pinned_and_database_isolated(
     }
     services = compose["services"]
     assert set(services) == expected | ({"web"} if deployment == "vps" else set())
-    assert len(compose["secrets"]) == (10 if deployment == "vps" else 9)
+    assert len(compose["secrets"]) == (11 if deployment == "vps" else 9)
     for name in expected:
         worker = services[name]
         source = name.rsplit("-", 1)[1]
@@ -103,8 +103,14 @@ def test_concurrent_workers_are_source_pinned_and_database_isolated(
             "HOMEFINDER_SOURCE_BUDGET_POLICY_FILE": (
                 "/run/homefinder-config/source-budget.json"
             ),
+            "HOMEFINDER_ARTIFACT_CAPABILITY_PRIVATE_KEY_FILE": (
+                "/run/secrets/artifact_capability_private_key"
+            ),
         }
-        assert web["secrets"] == ["scrape_coordinator_credentials"]
+        assert web["secrets"] == [
+            "scrape_coordinator_credentials",
+            "artifact_capability_private_key",
+        ]
         assert web["volumes"][0]["target"] == (
             "/run/homefinder-config/source-budget.json"
         )

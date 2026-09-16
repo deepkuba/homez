@@ -9,13 +9,14 @@ import re
 import stat
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager, suppress
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import cast
 
 import uvicorn
 from fastapi import FastAPI
 
+from homefinder.artifact_capability import load_capability_verifier
 from homefinder.artifacts.api import (
     ArtifactIdentity,
     ArtifactReadAudit,
@@ -106,6 +107,7 @@ def build_app(
     wrapping_key_file: Path,
     credentials_file: Path,
     audit_file: Path,
+    capability_public_key_file: Path | None = None,
     retention_interval_seconds: int = 3600,
 ) -> FastAPI:
     try:
@@ -178,22 +180,6 @@ def build_app(
                 identity = ArtifactIdentity(
                     subject, "maintenance", expiry, artifact_ids=members
                 )
-            elif role == "recovery":
-                if (
-                    not members
-                    or len(members) != len(ids)
-                    or raw.get("source") not in {"olx", "otodom", "morizon", "gratka"}
-                    or raw.get("benchmark_id") is not None
-                    or expiry > now + timedelta(minutes=30)
-                ):
-                    raise ValueError("invalid recovery scope")
-                identity = ArtifactIdentity(
-                    subject,
-                    "recovery",
-                    expiry,
-                    source=cast(Portal, raw["source"]),
-                    artifact_ids=members,
-                )
             elif role == "benchmark":
                 benchmark = _safe_name(raw.get("benchmark_id"))
                 if (
@@ -216,6 +202,11 @@ def build_app(
             store,
             credentials=identities,
             frozen_manifests=manifests,
+            capability_verifier=(
+                load_capability_verifier(capability_public_key_file)
+                if capability_public_key_file is not None
+                else None
+            ),
             audit=lambda event: _audit_writer(audit_file, event),
         )
     except Exception:
@@ -253,6 +244,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("command", choices=("serve", "expire-once"))
     for name in ("root", "wrapping-key-file", "credentials-file", "audit-file"):
         parser.add_argument("--" + name, required=True, type=Path)
+    parser.add_argument("--capability-public-key-file", type=Path)
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8091)
     parser.add_argument("--retention-interval-seconds", type=int, default=3600)
@@ -263,6 +255,7 @@ def main(argv: list[str] | None = None) -> int:
             wrapping_key_file=args.wrapping_key_file,
             credentials_file=args.credentials_file,
             audit_file=args.audit_file,
+            capability_public_key_file=args.capability_public_key_file,
             retention_interval_seconds=args.retention_interval_seconds,
         )
         if args.command == "expire-once":

@@ -32,7 +32,7 @@ class ArtifactRecoveryWorker:
         *,
         source: Portal,
         coordinator: ArtifactRecoveryCoordinator,
-        read_artifact: Callable[[str], bytes],
+        read_artifact: Callable[[str, str], bytes],
         parsers: Mapping[str, Parser],
     ) -> None:
         if source not in {"gratka", "morizon", "otodom", "olx"}:
@@ -55,7 +55,9 @@ class ArtifactRecoveryWorker:
             return True
         try:
             replay = self._coordinator.replay_input(lease)
-            body = self._read_artifact(replay.artifact_id)
+            if not replay.artifact_token:
+                raise ValueError("artifact capability missing")
+            body = self._read_artifact(replay.artifact_id, replay.artifact_token)
             if (
                 not isinstance(body, bytes)
                 or not 0 < len(body) <= 2_000_000

@@ -26,6 +26,7 @@ from pydantic import BaseModel
 from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import Session, sessionmaker
 
+from homefinder.artifact_capability import load_capability_signer
 from homefinder.catalog.orm import (
     FeedbackEventRecord,
     ListingRecord,
@@ -98,6 +99,14 @@ def create_app(
                     sessions, policy=coordinator_settings.scrape_queue_policy()
                 ),
                 budget=source_budget,
+                capability_signer=(
+                    load_capability_signer(
+                        coordinator_settings.artifact_capability_private_key_file
+                    )
+                    if coordinator_settings.artifact_capability_private_key_file
+                    is not None
+                    else None
+                ),
                 credentials_file=credentials_file,
             )
         )

@@ -13,6 +13,9 @@ PREFIX = "/internal/scrape/v1"
 
 @pytest.fixture
 def coordinator(scrape_queue, tmp_path):
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+    from homefinder.artifact_capability import ArtifactCapabilitySigner
     from homefinder.scrape_queue.api import create_coordinator_router
     from homefinder.scrape_queue.budget import SourceBudgetRepository
     from homefinder.scrape_queue.contracts import SourceBudgetPolicy
@@ -40,7 +43,11 @@ def coordinator(scrape_queue, tmp_path):
     app = FastAPI()
     app.include_router(
         create_coordinator_router(
-            repo, budget=budget, credentials_file=credentials, clock=lambda: NOW
+            repo,
+            budget=budget,
+            capability_signer=ArtifactCapabilitySigner(Ed25519PrivateKey.generate()),
+            credentials_file=credentials,
+            clock=lambda: NOW,
         )
     )
     with TestClient(app) as client:
@@ -401,6 +408,7 @@ def test_artifact_recovery_endpoints_are_nas_only_and_never_return_raw_bytes(
     )
     assert response.status_code == 200
     assert response.json()["artifact_id"] == replay.artifact_id
+    assert response.json()["artifact_token"]
     assert "raw" not in response.text
 
     result = {

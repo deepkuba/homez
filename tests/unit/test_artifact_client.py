@@ -48,8 +48,8 @@ def test_artifact_reader_is_exact_id_bounded_and_credential_scoped(
         calls.append((path, bearer))
         return 200, b"synthetic retained bytes"
 
-    body = HttpArtifactReader("http://artifacts:18105", token, request=request).read(
-        artifact_id
+    body = HttpArtifactReader("http://artifacts:18105", request=request).read(
+        artifact_id, "synthetic-recovery-token"
     )
 
     assert body == b"synthetic retained bytes"

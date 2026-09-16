@@ -17,6 +17,8 @@ services:
       - /run/secrets/artifact_kek
       - --credentials-file
       - /run/secrets/artifact_credentials
+      - --capability-public-key-file
+      - /run/secrets/artifact_capability_public_key
       - --audit-file
       - /var/lib/homefinder-artifact-audit/reads.jsonl
       - --host
@@ -55,6 +57,7 @@ services:
     secrets:
       - artifact_kek
       - artifact_credentials
+      - artifact_capability_public_key
 
 secrets:
   artifact_kek:
@@ -63,3 +66,6 @@ secrets:
   artifact_credentials:
     file: >-
       ${HOMEZ_ARTIFACT_SECRETS_DIR:?set NAS artifact secrets dir}/artifact-credentials
+  artifact_capability_public_key:
+    file: >-
+      ${HOMEZ_ARTIFACT_SECRETS_DIR:?set NAS artifact secrets dir}/artifact-capability-public.pem
