@@ -878,6 +878,10 @@ Evidence:
   Ruff formatting/lint and strict mypy pass. Deployment still requires the
   authorized issuer/configuration to mint the exact short-lived artifact scope
   and a NAS recovery process. No credential was minted and no replay ran.
+- Recovery artifact credentials are now rejected server-side when their expiry
+  exceeds 30 minutes, rather than relying on issuer convention. The focused
+  artifact API suite is **19 passed** and the full suite is **530 passed**, with
+  the same 19 unavailable PostgreSQL checks skipped.
 
 First failing test:
 `tests/integration/test_parser_recovery_postgres.py::test_activation_replays_only_newest_capture_without_fetch`.

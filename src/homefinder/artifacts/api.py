@@ -3,7 +3,7 @@
 import hmac
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Literal, Protocol
 from uuid import UUID
 
@@ -72,6 +72,10 @@ def create_artifact_app(
             identity is None
             or identity.expires_at.utcoffset() is None
             or identity.expires_at <= clock()
+            or (
+                identity.role == "recovery"
+                and identity.expires_at > clock() + timedelta(minutes=30)
+            )
         ):
             raise HTTPException(401, "Unauthorized")
         return identity

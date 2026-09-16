@@ -220,6 +220,30 @@ def test_recovery_read_requires_exact_short_lived_source_scoped_identity():
     assert store.reads == ["artifact-a"]
 
 
+def test_recovery_read_rejects_credential_valid_beyond_thirty_minutes():
+    store = Store()
+    identity = ArtifactIdentity(
+        "recovery-long-lived",
+        "recovery",
+        NOW + timedelta(minutes=31),
+        source="olx",
+        artifact_ids=frozenset({"artifact-a"}),
+    )
+    app = create_artifact_app(
+        store,
+        credentials={"recovery-token": identity},
+        audit=lambda event: None,
+        clock=lambda: NOW,
+    )
+
+    response = TestClient(app).get(
+        "/artifacts/artifact-a", headers=headers("recovery-token")
+    )
+
+    assert response.status_code == 401
+    assert store.reads == []
+
+
 @pytest.mark.parametrize(
     "header,value",
     [
