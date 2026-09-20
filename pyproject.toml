@@ -9,23 +9,23 @@ description = "Private, explainable home-finding assistant"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-  "alembic==1.19.1",
-  "cryptography==50.0.0",
+  "alembic==1.20.0",
+  "cryptography==50.0.1",
   "fastapi==0.141.1",
   "jinja2==3.1.6",
-  "psycopg[binary]==3.3.4",
+  "psycopg[binary]==3.3.5",
   "pydantic-settings==2.15.0",
-  "sqlalchemy==2.0.52",
-  "uvicorn==0.52.4",
+  "sqlalchemy==2.0.54",
+  "uvicorn==0.53.0",
 ]
 
 [project.optional-dependencies]
 dev = [
-  "httpx2==2.12.0",
+  "httpx2==2.13.0",
   "mypy==2.3.1",
   "pip-audit==2.10.1",
   "pytest==9.1.1",
-  "ruff==0.16.5",
+  "ruff==0.16.8",
   "yamllint==1.38.0",
 ]
 
