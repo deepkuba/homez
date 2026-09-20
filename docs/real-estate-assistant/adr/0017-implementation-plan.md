@@ -907,10 +907,9 @@ Evidence:
 - Full repository verification after signed-capability wiring: **532 passed**,
   with 19 PostgreSQL tests skipped because `TEST_POSTGRES_URL` is unavailable.
   Ruff formatting/lint, strict mypy, and the dark NAS/VPS worker Compose models
-  pass locally. Installed Compose v1 cannot validate the artifact overlay's
-  existing `create_host_path` option, so Compose v2 remains its CI gate. No key
-  was generated or installed, no capability was issued outside synthetic tests,
-  and no recovery process or live replay ran.
+  pass locally. The artifact overlay subsequently passed with per-user Compose
+  v2.40.3. No key was generated or installed, no capability was issued outside
+  synthetic tests, and no recovery process or live replay ran.
 - Added the runnable NAS artifact-recovery processes after a focused worker test
   first failed on missing release registration and lease renewal. Each portal
   has a separate source-pinned process with its own coordinator identity, 0.25
@@ -1320,12 +1319,12 @@ Evidence:
   `TEST_POSTGRES_URL` is unavailable. Ruff formatting/lint, strict mypy, fixture
   safety, dependency audit, YAML lint, SQLite migration up/down/up, and Alembic
   drift checks pass.
-- Dark NAS and VPS worker overlays, including the bounded recovery workers,
-  validate with installed Compose v1. The artifact overlay still requires
-  Compose v2 because v1 rejects its existing `create_host_path` contract.
+- Dark NAS and VPS worker overlays, including the bounded recovery workers, and
+  the NAS artifact overlay validate with Compose v2.40.3. Configuration
+  validation did not start services or contact the Docker daemon.
 - A disposable PostGIS service and immutable image build could not run because
-  this host cannot access the Docker daemon and has no Compose v2 plugin. These
-  remain CI gates rather than repository implementation gaps.
+  this host cannot access the Docker daemon. These remain CI gates rather than
+  repository implementation gaps.
 - Production-only inputs still gate the distinct active/candidate benchmark
   service, parser evidence, service identities, secrets, alert delivery, clean
   restore evidence, portal rollout, activation, recovery release, and legacy
