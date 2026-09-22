@@ -223,8 +223,9 @@ not supplied by the repository. Set `HOMEZ_ARTIFACT_DATA_DIR`,
 `HOMEZ_ARTIFACT_AUDIT_DIR`, and `HOMEZ_ARTIFACT_SECRETS_DIR` to separate,
 non-overlapping NAS directories outside every backup source tree. Precreate
 writable data/audit directories for UID/GID 10001 with mode 0700; Compose will
-not create missing bind paths. Place `artifact-kek` and `artifact-credentials`
-in the secret directory, readable by that UID (for example root:10001, 0440).
+not create missing bind paths. Place `artifact-kek`, `artifact-credentials`, and
+`artifact-capability-public.pem` in the secret directory, owned by UID/GID
+10001 with mode 0400 as required by the service's fail-closed startup checks.
 Provision one Ed25519 recovery-capability keypair outside the repository. Put
 only `artifact-capability-public.pem` in the NAS artifact secret directory and
 put `artifact-capability-private.pem` in the VPS application secret directory.

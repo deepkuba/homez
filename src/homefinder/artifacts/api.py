@@ -65,6 +65,10 @@ def create_artifact_app(
         response.headers["Cache-Control"] = "no-store"
         return response
 
+    @app.get("/health", include_in_schema=False)
+    def health() -> dict[str, str]:
+        return {"status": "ok"}
+
     def authenticate(
         request: Request, *, artifact_id: str | None = None
     ) -> ArtifactIdentity:

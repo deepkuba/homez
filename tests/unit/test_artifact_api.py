@@ -67,6 +67,19 @@ def headers(token="worker"):  # noqa: S107 - synthetic test credential
     }
 
 
+def test_health_endpoint_supports_container_probe_without_authentication():
+    client, store, audit = setup_api()
+
+    response = client.get("/health")
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok"}
+    assert response.headers["cache-control"] == "no-store"
+    assert store.uploads == []
+    assert store.reads == []
+    assert audit == []
+
+
 def test_worker_upload_is_source_pinned_and_read_forbidden():
     client, store, _ = setup_api()
     response = client.post("/artifacts/olx", content=b"exact bytes", headers=headers())
