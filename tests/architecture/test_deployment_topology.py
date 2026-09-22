@@ -233,6 +233,12 @@ def test_runtime_image_contains_matching_postgresql_client() -> None:
     assert "apt.postgresql.org.asc" in dockerfile
 
 
+def test_runtime_image_prepares_writable_backup_mount() -> None:
+    dockerfile = Path("Dockerfile").read_text(encoding="utf-8")
+
+    assert "install -d -o 10001 -g 10001 -m 0700 /var/backups/homefinder" in dockerfile
+
+
 def test_runtime_image_contains_immutable_parser_dependency_lock() -> None:
     dockerfile = Path("Dockerfile").read_text(encoding="utf-8")
 

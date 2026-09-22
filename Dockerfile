@@ -31,6 +31,7 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd --system --gid 10001 homefinder \
     && useradd --system --uid 10001 --gid homefinder --home-dir /app homefinder \
+    && install -d -o 10001 -g 10001 -m 0700 /var/backups/homefinder \
     && python -m venv /opt/venv
 
 COPY --from=builder /wheels /wheels
