@@ -9,6 +9,17 @@ import yaml
 
 
 @pytest.mark.parametrize("deployment", ["nas", "vps"])
+def test_concurrent_workers_allow_bounded_cli_probe_startup(deployment: str) -> None:
+    compose = yaml.safe_load(
+        Path(f"infra/compose.concurrent-scrapers-{deployment}.yaml").read_text()
+    )
+
+    for name, service in compose["services"].items():
+        if "worker" in name:
+            assert service["healthcheck"]["timeout"] == "15s"
+
+
+@pytest.mark.parametrize("deployment", ["nas", "vps"])
 def test_concurrent_workers_are_source_pinned_and_database_isolated(
     deployment: str,
 ) -> None:

@@ -31,7 +31,7 @@ x-concurrent-worker: &concurrent-worker
       - --max-age-seconds
       - '90'
     interval: 30s
-    timeout: 5s
+    timeout: 15s
     start_period: 10s
     retries: 3
   networks:
