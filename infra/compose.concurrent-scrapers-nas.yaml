@@ -24,8 +24,9 @@ x-concurrent-worker: &concurrent-worker
   healthcheck:
     test:
       - CMD
-      - homefinder
-      - runtime-health
+      - python
+      - -m
+      - homefinder.runtime_health
       - --heartbeat-file
       - /tmp/scrape-heartbeat
       - --max-age-seconds

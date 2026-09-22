@@ -96,8 +96,9 @@ def test_concurrent_workers_are_source_pinned_and_database_isolated(
         assert worker["tmpfs"] == ["/tmp:size=16m,mode=1777"]
         assert worker["healthcheck"]["test"] == [
             "CMD",
-            "homefinder",
-            "runtime-health",
+            "python",
+            "-m",
+            "homefinder.runtime_health",
             "--heartbeat-file",
             "/tmp/scrape-heartbeat",
             "--max-age-seconds",
