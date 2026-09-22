@@ -7,6 +7,80 @@ from sqlalchemy import select
 NOW = datetime(2026, 9, 9, tzinfo=timezone.utc)
 
 
+def test_discovery_capture_can_be_claimed_without_active_parser(scrape_queue):
+    from homefinder.catalog.orm import PortalParserActivationRecord
+    from homefinder.scrape_queue.contracts import TaskClass
+
+    repo, snapshots, workers, sessions = scrape_queue
+    with sessions.begin() as session:
+        session.delete(session.get(PortalParserActivationRecord, "gratka"))
+    task_id = repo.enqueue(
+        source="gratka",
+        snapshot_id=snapshots[0],
+        now=NOW,
+        task_class=TaskClass.DISCOVERY_CAPTURE,
+        release_hash="a" * 64,
+    )
+
+    lease = repo.claim(workers[0], now=NOW, task_classes=(TaskClass.DISCOVERY_CAPTURE,))
+
+    assert lease.task_id == task_id
+    assert lease.task_class is TaskClass.DISCOVERY_CAPTURE
+    assert lease.release_hash == "a" * 64
+    assert lease.activation_epoch == 1
+
+
+def test_discovery_canary_is_bounded_previewable_and_audited(scrape_queue):
+    from homefinder.catalog.orm import (
+        DiscoveryCanaryAuditRecord,
+        PortalParserActivationRecord,
+        ScrapeTaskRecord,
+    )
+
+    repo, _, _, sessions = scrape_queue
+    with pytest.raises(ValueError, match="requires no active parser"):
+        repo.release_discovery_canary(source="gratka", release_hash="a" * 64, now=NOW)
+    with sessions.begin() as session:
+        session.delete(session.get(PortalParserActivationRecord, "gratka"))
+
+    preview = repo.release_discovery_canary(
+        source="gratka", release_hash="a" * 64, now=NOW
+    )
+    assert 1 <= preview.selected_count <= 25
+    assert (preview.enqueued_count, preview.execute) == (0, False)
+    with sessions() as session:
+        assert session.scalar(select(DiscoveryCanaryAuditRecord)) is None
+
+    released = repo.release_discovery_canary(
+        source="gratka",
+        release_hash="a" * 64,
+        now=NOW,
+        execute=True,
+        actor="operator@example.invalid",
+    )
+
+    assert released.selected_count == preview.selected_count
+    assert (released.enqueued_count, released.execute) == (
+        preview.selected_count,
+        True,
+    )
+    with sessions() as session:
+        assert (
+            len(session.scalars(select(ScrapeTaskRecord)).all())
+            == preview.selected_count
+        )
+        audit = session.scalars(select(DiscoveryCanaryAuditRecord)).one()
+        assert audit.actor == "operator@example.invalid"
+        assert (audit.selected_count, audit.enqueued_count) == (
+            preview.selected_count,
+            preview.selected_count,
+        )
+    with pytest.raises(ValueError, match="between 1 and 25"):
+        repo.release_discovery_canary(
+            source="gratka", release_hash="a" * 64, now=NOW, limit=26
+        )
+
+
 def test_enqueue_is_idempotent_and_only_advertised_source_is_claimed(scrape_queue):
     from homefinder.scrape_queue.contracts import WorkerIdentity
 

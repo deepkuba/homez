@@ -21,7 +21,9 @@ def test_client_uses_bounded_private_control_requests(tmp_path):
     assert client.claim() is None
     assert calls[0][0] == "/internal/scrape/v1/workers/heartbeat"
     assert calls[0][2] == "synthetic-worker-token"
-    assert calls[1][1] == {"task_classes": ["live", "network_recovery"]}
+    assert calls[1][1] == {
+        "task_classes": ["live", "network_recovery", "discovery_capture"]
+    }
 
 
 def test_recovery_client_uses_artifact_only_control_paths(tmp_path):

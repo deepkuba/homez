@@ -10,7 +10,7 @@ from threading import Event, Thread
 from typing import cast
 
 from homefinder.artifacts.contracts import ArtifactWriter
-from homefinder.parsers.contracts import Parser, ParserResult, Portal
+from homefinder.parsers.contracts import DECLARED_FIELDS, Parser, ParserResult, Portal
 from homefinder.runtime import install_stop_signals, write_heartbeat
 from homefinder.scrape_queue.contracts import (
     CaptureOutcome,
@@ -84,7 +84,12 @@ class ScrapeWorker:
             <= self.heartbeat_seconds
             or lease.source != self.source
             or lease.release_hash not in self.parsers
-            or lease.task_class not in {TaskClass.LIVE, TaskClass.NETWORK_RECOVERY}
+            or lease.task_class
+            not in {
+                TaskClass.LIVE,
+                TaskClass.NETWORK_RECOVERY,
+                TaskClass.DISCOVERY_CAPTURE,
+            }
         ):
             return True
         done, lost = Event(), Event()
@@ -176,37 +181,45 @@ class ScrapeWorker:
                 )
             except Exception:
                 return True
-            try:
-                result = self.parsers[lease.release_hash].parse(page)
-                if (
-                    result.capture_id != page.capture_id
-                    or result.release_hash != lease.release_hash
-                ):
-                    raise ValueError("parser release or capture mismatch")
-            except Exception:
+            if lease.task_class is TaskClass.DISCOVERY_CAPTURE:
                 # Capture succeeded. Keep unknowns and advance partial normalization;
-                # a parser miss must not request these bytes again.
                 result = ParserResult(
                     page.capture_id,
                     lease.release_hash,
-                    "unknown-variant",
+                    "discovery-capture",
                     (),
-                    (
-                        "title",
-                        "price",
-                        "currency",
-                        "locality",
-                        "area",
-                        "rooms",
-                        "description",
-                        "availability",
-                        "monthly_admin_fee",
-                        "heating_type",
-                        "admin_fee_includes_heating",
-                    ),
+                    DECLARED_FIELDS,
                 )
+            else:
+                try:
+                    result = self.parsers[lease.release_hash].parse(page)
+                    if (
+                        result.capture_id != page.capture_id
+                        or result.release_hash != lease.release_hash
+                    ):
+                        raise ValueError("parser release or capture mismatch")
+                except Exception:
+                    # A parser miss must not request these bytes again.
+                    result = ParserResult(
+                        page.capture_id,
+                        lease.release_hash,
+                        "unknown-variant",
+                        (),
+                        DECLARED_FIELDS,
+                    )
             artifact_id = None
-            if result.missing_fields and self.artifact_writer is not None:
+            if lease.task_class is TaskClass.DISCOVERY_CAPTURE:
+                if self.artifact_writer is None:
+                    with suppress(Exception):
+                        self.coordinator.fail(lease, "artifact-unavailable")
+                    return True
+                try:
+                    artifact_id = self.artifact_writer.store(self.source, page)
+                except Exception:
+                    with suppress(Exception):
+                        self.coordinator.fail(lease, "artifact-unavailable")
+                    return True
+            elif result.missing_fields and self.artifact_writer is not None:
                 try:
                     artifact_id = self.artifact_writer.store(self.source, page)
                 except Exception:

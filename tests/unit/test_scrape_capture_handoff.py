@@ -49,6 +49,42 @@ def test_capture_and_production_result_commit_atomically_and_idempotently(scrape
     )
 
 
+def test_discovery_completion_persists_artifact_metadata_without_production_facts(
+    scrape_queue,
+):
+    from dataclasses import replace
+
+    from homefinder.catalog.orm import (
+        DiscoveryCaptureRecord,
+        PortalParserActivationRecord,
+        ProductionParserResultRecord,
+    )
+    from homefinder.scrape_queue.contracts import TaskClass
+
+    repo, snapshots, workers, sessions = scrape_queue
+    with sessions.begin() as session:
+        session.delete(session.get(PortalParserActivationRecord, "gratka"))
+    repo.enqueue(
+        source="gratka",
+        snapshot_id=snapshots[0],
+        now=NOW,
+        task_class=TaskClass.DISCOVERY_CAPTURE,
+        release_hash="a" * 64,
+    )
+    lease = repo.claim(workers[0], now=NOW, task_classes=(TaskClass.DISCOVERY_CAPTURE,))
+    captured = replace(outcome(lease), artifact_id=str(uuid4()))
+
+    repo.complete(workers[0], lease, captured, now=NOW)
+
+    with sessions() as session:
+        discovery = session.scalars(select(DiscoveryCaptureRecord)).one()
+        assert discovery.artifact_id == captured.artifact_id
+        assert discovery.expires_at.replace(tzinfo=timezone.utc) == NOW + timedelta(
+            days=30
+        )
+        assert session.scalar(select(ProductionParserResultRecord)) is None
+
+
 def test_stale_capture_completion_writes_no_raw_or_facts(scrape_queue):
     from homefinder.catalog.orm import PageCaptureRecord, PortalParserActivationRecord
     from homefinder.scrape_queue.contracts import LostLease

@@ -82,6 +82,44 @@ capture, and the current live two-year cutoff before continuing. The warning
 does not delete backup data or block restore; backup pruning remains a manual
 operator decision.
 
+## Parser bootstrap discovery canary
+
+Use the discovery canary only when a portal has no active parser and therefore
+cannot yet produce the raw evidence required by the activation gate. The
+command selects at most 25 newest non-inactive listings, registers the packaged
+parser only as a draft, and enqueues artifact-only work. Discovery workers use
+the normal central pacing, cooldown, proxy accounting, and bounded HTTP path.
+They store exact encrypted raw bytes on NAS and safe capture metadata in the
+database; they do not run the parser or write production facts.
+
+Preview first. `--git-commit` and `--image-digest` must identify the exact
+deployed immutable worker image:
+
+```bash
+homefinder release-discovery-canary \
+  --source gratka \
+  --git-commit REVIEWED_COMMIT \
+  --image-digest sha256:REVIEWED_DIGEST
+```
+
+After reviewing the selected count, explicitly release the canary with a named
+operator:
+
+```bash
+homefinder release-discovery-canary \
+  --source gratka \
+  --git-commit REVIEWED_COMMIT \
+  --image-digest sha256:REVIEWED_DIGEST \
+  --execute --actor OPERATOR_ID
+```
+
+The limit cannot exceed 25 and execution writes an audit row. A discovery task
+requires an advertised draft release but no active parser pointer. Its
+completion requires an artifact identifier and cannot create a
+`production_parser_results` row. Review the captured objects only through the
+scoped maintenance path, freeze the benchmark manifest, and complete benchmark
+review before any separate manual activation.
+
 ## NAS artifact retention and backup boundary
 
 The optional artifact service stores encrypted diagnostic objects and their

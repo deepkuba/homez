@@ -95,6 +95,7 @@ class FailurePayload(LeaseMutation):
         "invalid-target",
         "invalid-recovery-lease",
         "artifact-recovery-failed",
+        "artifact-unavailable",
     ]
 
 

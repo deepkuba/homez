@@ -127,7 +127,16 @@ class HttpCoordinatorClient:
         self._call("workers/heartbeat", payload)
 
     def claim(self) -> ScrapeLease | None:
-        raw = self._call("claim", {"task_classes": ["live", "network_recovery"]})
+        raw = self._call(
+            "claim",
+            {
+                "task_classes": [
+                    "live",
+                    "network_recovery",
+                    "discovery_capture",
+                ]
+            },
+        )
         if raw == b"null":
             return None
         try:

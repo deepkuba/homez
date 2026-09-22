@@ -177,6 +177,18 @@ def _parser() -> argparse.ArgumentParser:
     recovery.add_argument("--batch", required=True, choices=("50", "150", "remainder"))
     recovery.add_argument("--execute", action="store_true")
     recovery.add_argument("--actor")
+    discovery = commands.add_parser(
+        "release-discovery-canary",
+        help="preview or enqueue an artifact-only parser bootstrap canary",
+    )
+    discovery.add_argument(
+        "--source", required=True, choices=("gratka", "morizon", "otodom", "olx")
+    )
+    discovery.add_argument("--git-commit", required=True)
+    discovery.add_argument("--image-digest", required=True)
+    discovery.add_argument("--limit", type=int, default=25)
+    discovery.add_argument("--execute", action="store_true")
+    discovery.add_argument("--actor")
     retention = commands.add_parser(
         "run-parser-retention", help="run one bounded production retention batch"
     )
@@ -186,6 +198,42 @@ def _parser() -> argparse.ArgumentParser:
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
+    if args.command == "release-discovery-canary":
+        from homefinder.parser_releases import ParserReleaseRepository, ReleaseBuild
+        from homefinder.parser_releases.package import load_packaged_parser
+
+        settings = Settings()
+        engine = create_engine(settings.database_url.get_secret_value())
+        try:
+            sessions = sessionmaker(engine, expire_on_commit=False)
+            packaged = load_packaged_parser(
+                args.source, dependency_lock_file=Path("/app/release/requirements.lock")
+            )
+            build = ReleaseBuild(
+                source=args.source,
+                parser_version=f"bootstrap-{args.git_commit[:12]}",
+                git_commit=args.git_commit,
+                parser_content_hash=packaged.parser_content_hash,
+                configuration_hash=packaged.configuration_hash,
+                dependency_lock_hash=packaged.dependency_lock_hash,
+                deployable_digest=args.image_digest,
+                qualifying_benchmark_run=f"pending-discovery-{args.source}",
+            )
+            registered = ParserReleaseRepository(sessions).register(
+                build, now=datetime.now(timezone.utc)
+            )
+            plan = ScrapeQueueRepository(sessions).release_discovery_canary(
+                source=args.source,
+                release_hash=registered.release_hash,
+                now=datetime.now(timezone.utc),
+                limit=args.limit,
+                execute=args.execute,
+                actor=args.actor,
+            )
+            print(json.dumps(plan.__dict__, sort_keys=True))
+        finally:
+            engine.dispose()
+        return 0
     if args.command == "run-parser-retention":
         settings = Settings()
         if settings.report_recipient_file is None:

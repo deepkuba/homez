@@ -179,6 +179,49 @@ def test_worker_accounts_success_before_completing_task():
     assert events == [("account", ResponseClassification.SUCCESS), ("complete", 9)]
 
 
+def test_discovery_capture_stores_exact_artifact_without_running_parser():
+    from dataclasses import replace
+
+    from homefinder.parsers.contracts import PageInput
+    from homefinder.scrape_queue.contracts import TaskClass
+    from homefinder.scraper.worker import ScrapeWorker
+
+    coordinator = Coordinator()
+    coordinator.leased = replace(
+        coordinator.leased, task_class=TaskClass.DISCOVERY_CAPTURE
+    )
+    stored = []
+
+    class Transport:
+        def fetch(self, request):
+            return PageInput(uuid4(), NOW, b"synthetic discovery bytes")
+
+    class Parser:
+        def parse(self, page):
+            pytest.fail("discovery capture must not run a parser")
+
+    class Artifacts:
+        def store(self, source, page):
+            stored.append((source, page.body))
+            return str(uuid4())
+
+    ScrapeWorker(
+        source="gratka",
+        coordinator=coordinator,
+        transport=Transport(),
+        parsers={"a" * 64: Parser()},
+        stop=Event(),
+        clock=lambda: NOW,
+        artifact_writer=Artifacts(),
+    ).run_once()
+
+    assert stored == [("gratka", b"synthetic discovery bytes")]
+    assert len(coordinator.completed) == 1
+    assert coordinator.completed[0].artifact_id is not None
+    assert coordinator.completed[0].result.candidates == ()
+    assert coordinator.completed[0].result.facts.title == ""
+
+
 def test_proxy_denial_is_accounted_and_never_reaches_parser():
     from homefinder.scrape_queue.contracts import NetworkPermit
     from homefinder.scraper.denial_policy import (

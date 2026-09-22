@@ -12,13 +12,15 @@ from typing import cast
 from uuid import UUID, uuid4
 
 from pydantic import TypeAdapter
-from sqlalchemy import and_, or_, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
 from homefinder.catalog.orm import (
     ArtifactRecoveryBindingRecord,
     DiagnosticRunRecord,
+    DiscoveryCanaryAuditRecord,
+    DiscoveryCaptureRecord,
     ListingRecord,
     ListingSnapshotRecord,
     PageCaptureRecord,
@@ -46,6 +48,7 @@ from homefinder.parsers.contracts import (
 from homefinder.scrape_queue.contracts import (
     ArtifactReplayInput,
     CaptureOutcome,
+    DiscoveryCanaryPlan,
     LostLease,
     QueuePolicy,
     ScrapeLease,
@@ -56,13 +59,16 @@ from homefinder.scrape_queue.contracts import (
 )
 from homefinder.sources.portal_pages import validate_listing_url
 
-FAILURE_CODES = frozenset({"transport-error", "parser-error", "invalid-target"})
+FAILURE_CODES = frozenset(
+    {"transport-error", "parser-error", "invalid-target", "artifact-unavailable"}
+)
 DEFER_CODES = frozenset({"portal-denied", "source-cooldown", "budget-exhausted"})
 SUCCESS_CODES = frozenset({"downloaded", "partial", "artifact-unavailable"})
 PRIORITIES = {
     TaskClass.LIVE: 0,
     TaskClass.ARTIFACT_RECOVERY: 10,
     TaskClass.NETWORK_RECOVERY: 20,
+    TaskClass.DISCOVERY_CAPTURE: 30,
 }
 
 
@@ -94,11 +100,27 @@ class ScrapeQueueRepository:
         snapshot_id: UUID,
         now: datetime,
         task_class: TaskClass = TaskClass.LIVE,
+        release_hash: str | None = None,
     ) -> UUID:
         require_aware(now)
         task_class = TaskClass(task_class)
         with self._sessions.begin() as session:
-            active = self._active(session, source)
+            if task_class is TaskClass.DISCOVERY_CAPTURE:
+                release = session.get(ParserReleaseRecord, release_hash)
+                if (
+                    release is None
+                    or release.source != source
+                    or release.status == "revoked"
+                ):
+                    raise ValueError("discovery release is unavailable")
+                selected_release = release.release_hash
+                selected_epoch = 1
+            else:
+                if release_hash is not None:
+                    raise ValueError("release override is discovery-only")
+                active = self._active(session, source)
+                selected_release = active.release_hash
+                selected_epoch = active.activation_epoch
             snapshot = session.get(ListingSnapshotRecord, snapshot_id)
             listing = (
                 session.get(ListingRecord, snapshot.listing_id) if snapshot else None
@@ -111,7 +133,7 @@ class ScrapeQueueRepository:
                 raise ValueError("listing identity mismatch")
             identity_key = f"{source}:{snapshot_id}:{canonical}:{task_class.value}"
             if task_class != TaskClass.LIVE:
-                identity_key += f":{active.release_hash}:{active.activation_epoch}"
+                identity_key += f":{selected_release}:{selected_epoch}"
             key = hashlib.sha256(identity_key.encode()).hexdigest()
             existing = session.scalar(
                 select(ScrapeTaskRecord.id).where(
@@ -130,8 +152,8 @@ class ScrapeQueueRepository:
                             snapshot_id=snapshot_id,
                             canonical_url=canonical,
                             task_class=task_class.value,
-                            release_hash=active.release_hash,
-                            activation_epoch=active.activation_epoch,
+                            release_hash=selected_release,
+                            activation_epoch=selected_epoch,
                             idempotency_key=key,
                             priority=PRIORITIES[task_class],
                             state="held"
@@ -153,6 +175,90 @@ class ScrapeQueueRepository:
                     raise
                 return winner
             return task_id
+
+    def release_discovery_canary(
+        self,
+        *,
+        source: Portal,
+        release_hash: str,
+        now: datetime,
+        limit: int = 25,
+        execute: bool = False,
+        actor: str | None = None,
+    ) -> DiscoveryCanaryPlan:
+        require_aware(now)
+        if not 1 <= limit <= 25:
+            raise ValueError("discovery canary limit must be between 1 and 25")
+        if execute and (actor is None or not 1 <= len(actor) <= 200):
+            raise ValueError("executed discovery canary requires an actor")
+        with self._sessions() as session:
+            if session.get(PortalParserActivationRecord, source) is not None:
+                raise ValueError("discovery canary requires no active parser")
+            release = session.get(ParserReleaseRecord, release_hash)
+            if (
+                release is None
+                or release.source != source
+                or release.status == "revoked"
+            ):
+                raise ValueError("discovery release is unavailable")
+            newest = (
+                select(
+                    ListingSnapshotRecord.listing_id,
+                    func.max(ListingSnapshotRecord.observed_at).label("observed_at"),
+                )
+                .group_by(ListingSnapshotRecord.listing_id)
+                .subquery()
+            )
+            snapshot_ids = tuple(
+                session.scalars(
+                    select(ListingSnapshotRecord.id)
+                    .join(
+                        newest,
+                        and_(
+                            newest.c.listing_id == ListingSnapshotRecord.listing_id,
+                            newest.c.observed_at == ListingSnapshotRecord.observed_at,
+                        ),
+                    )
+                    .join(
+                        ListingRecord,
+                        ListingRecord.id == ListingSnapshotRecord.listing_id,
+                    )
+                    .join(SourceRecord, SourceRecord.id == ListingRecord.source_id)
+                    .where(
+                        SourceRecord.key == source,
+                        ListingRecord.lifecycle_state != "inactive",
+                    )
+                    .order_by(
+                        ListingSnapshotRecord.observed_at.desc(),
+                        ListingSnapshotRecord.id,
+                    )
+                    .limit(limit)
+                )
+            )
+        enqueued = 0
+        if execute:
+            for snapshot_id in snapshot_ids:
+                self.enqueue(
+                    source=source,
+                    snapshot_id=snapshot_id,
+                    now=now,
+                    task_class=TaskClass.DISCOVERY_CAPTURE,
+                    release_hash=release_hash,
+                )
+                enqueued += 1
+            with self._sessions.begin() as session:
+                session.add(
+                    DiscoveryCanaryAuditRecord(
+                        id=uuid4(),
+                        source=source,
+                        release_hash=release_hash,
+                        actor=cast(str, actor),
+                        selected_count=len(snapshot_ids),
+                        enqueued_count=enqueued,
+                        created_at=now,
+                    )
+                )
+        return DiscoveryCanaryPlan(source, len(snapshot_ids), enqueued, execute)
 
     def register_worker(
         self,
@@ -220,8 +326,6 @@ class ScrapeQueueRepository:
                 .where(PortalParserActivationRecord.source == worker.source)
                 .with_for_update(read=True)
             )
-            if active is None:
-                return None
             row = session.scalar(
                 select(ScraperWorkerRecord)
                 .where(ScraperWorkerRecord.worker_id == worker.worker_id)
@@ -233,14 +337,22 @@ class ScrapeQueueRepository:
                 or (row.source, row.deployment) != (worker.source, worker.deployment)
                 or aware(row.heartbeat_at)
                 <= now - timedelta(seconds=self.policy.worker_health_seconds)
-                or active.release_hash not in json.loads(row.release_hashes_json)
             ):
                 return None
+            allowed_classes = classes
+            if active is None:
+                allowed_classes = tuple(
+                    item
+                    for item in classes
+                    if item == TaskClass.DISCOVERY_CAPTURE.value
+                )
+                if not allowed_classes:
+                    return None
             task = session.scalar(
                 select(ScrapeTaskRecord)
                 .where(
                     ScrapeTaskRecord.source == worker.source,
-                    ScrapeTaskRecord.task_class.in_(classes),
+                    ScrapeTaskRecord.task_class.in_(allowed_classes),
                     ScrapeTaskRecord.state.in_(("pending", "deferred")),
                     ScrapeTaskRecord.available_at <= now,
                     ScrapeTaskRecord.attempt_count < self.policy.max_attempts,
@@ -261,8 +373,15 @@ class ScrapeQueueRepository:
                 seconds=self.policy.worker_health_seconds
             ):
                 return None
-            task.release_hash = active.release_hash
-            task.activation_epoch = active.activation_epoch
+            advertised = set(json.loads(row.release_hashes_json))
+            if task.task_class == TaskClass.DISCOVERY_CAPTURE.value:
+                if task.release_hash not in advertised:
+                    return None
+            else:
+                if active is None or active.release_hash not in advertised:
+                    return None
+                task.release_hash = active.release_hash
+                task.activation_epoch = active.activation_epoch
             task.state = "running"
             task.attempt_count += 1
             task.lease_owner = worker.worker_id
@@ -308,7 +427,12 @@ class ScrapeQueueRepository:
         result = outcome.result
         fields = result.fields or resolve_fields(result.candidates)
         if (
-            lease.task_class not in {TaskClass.LIVE, TaskClass.NETWORK_RECOVERY}
+            lease.task_class
+            not in {
+                TaskClass.LIVE,
+                TaskClass.NETWORK_RECOVERY,
+                TaskClass.DISCOVERY_CAPTURE,
+            }
             or not 0 < outcome.size_bytes <= 2_000_000
             or re.fullmatch(r"[0-9a-f]{64}", outcome.content_hash) is None
             or outcome.capture_id != result.capture_id
@@ -351,7 +475,64 @@ class ScrapeQueueRepository:
         if len(encoded) > 120_000:
             raise ValueError("production result too large")
         result_hash = hashlib.sha256(encoded).hexdigest()
+        if (
+            lease.task_class is TaskClass.DISCOVERY_CAPTURE
+            and outcome.artifact_id is None
+        ):
+            raise ValueError("discovery capture requires an artifact")
         with self._sessions.begin() as session:
+            task: ScrapeTaskRecord | None
+            if lease.task_class is TaskClass.DISCOVERY_CAPTURE:
+                prior_discovery = session.get(DiscoveryCaptureRecord, lease.task_id)
+                if prior_discovery is not None:
+                    if (
+                        prior_discovery.capture_id == outcome.capture_id
+                        and prior_discovery.artifact_id == outcome.artifact_id
+                        and prior_discovery.content_hash == outcome.content_hash
+                    ):
+                        return
+                    raise LostLease(
+                        "discovery completion differs from accepted outcome"
+                    )
+                task = self._leased(session, worker, lease, now)
+                if task.lease_started_at is None or outcome.fetched_at < aware(
+                    task.lease_started_at
+                ):
+                    raise ValueError("capture predates network lease")
+                session.add(
+                    PageCaptureRecord(
+                        id=outcome.capture_id,
+                        snapshot_id=task.snapshot_id,
+                        fetched_at=outcome.fetched_at,
+                        content_hash=outcome.content_hash,
+                        size_bytes=outcome.size_bytes,
+                    )
+                )
+                session.flush()
+                session.add(
+                    DiscoveryCaptureRecord(
+                        task_id=task.id,
+                        capture_id=outcome.capture_id,
+                        artifact_id=cast(str, outcome.artifact_id),
+                        source=task.source,
+                        content_hash=outcome.content_hash,
+                        fetched_at=outcome.fetched_at,
+                        expires_at=outcome.fetched_at + timedelta(days=30),
+                    )
+                )
+                attempt = session.get(
+                    ScrapeAttemptRecord, (task.id, task.attempt_count)
+                )
+                if attempt is None:
+                    raise LostLease("lease attempt missing")
+                attempt.finished_at = self._current(now)
+                attempt.outcome = "succeeded"
+                attempt.code = "discovery-captured"
+                attempt.response_bytes = outcome.size_bytes
+                task.state = "succeeded"
+                task.finished_at = self._current(now)
+                self._clear_lease(task)
+                return
             # Match claim/activation lock ordering: portal pointer, then task.
             self._active(session, worker.source)
             task = session.scalar(
@@ -959,19 +1140,25 @@ class ScrapeQueueRepository:
             .with_for_update()
         )
         now = self._current(now)
+        discovery = (
+            task is not None and task.task_class == TaskClass.DISCOVERY_CAPTURE.value
+        )
         if (
             task is None
             or task.lease_expires_at is None
             or aware(task.lease_expires_at) <= now
-            or active is None
             or task.task_class != lease.task_class.value
             or task.snapshot_id != lease.snapshot_id
             or task.canonical_url != lease.canonical_url
             or task.attempt_count != lease.attempt_number
-            or (task.release_hash, task.activation_epoch)
-            != (active.release_hash, active.activation_epoch)
             or (lease.source, lease.release_hash, lease.activation_epoch)
             != (task.source, task.release_hash, task.activation_epoch)
+            or not discovery
+            and (
+                active is None
+                or (task.release_hash, task.activation_epoch)
+                != (active.release_hash, active.activation_epoch)
+            )
         ):
             raise LostLease("lease is expired, replaced, or from a withdrawn epoch")
         return task

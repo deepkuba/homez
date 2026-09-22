@@ -12,6 +12,7 @@ class TaskClass(str, Enum):
     LIVE = "live"
     ARTIFACT_RECOVERY = "artifact_recovery"
     NETWORK_RECOVERY = "network_recovery"
+    DISCOVERY_CAPTURE = "discovery_capture"
 
 
 @dataclass(frozen=True)
@@ -89,6 +90,14 @@ class TaskStatus:
     available_at: datetime
     attempt_count: int
     created_at: datetime
+
+
+@dataclass(frozen=True)
+class DiscoveryCanaryPlan:
+    source: Portal
+    selected_count: int
+    enqueued_count: int
+    execute: bool
 
 
 @dataclass(frozen=True)

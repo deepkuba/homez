@@ -31,6 +31,7 @@ def test_task_classes_exclude_benchmark() -> None:
         "live",
         "artifact_recovery",
         "network_recovery",
+        "discovery_capture",
     }
 
 

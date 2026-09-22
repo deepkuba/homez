@@ -651,7 +651,8 @@ class ScrapeTaskRecord(Base):
             name="ck_scrape_task_source",
         ),
         CheckConstraint(
-            "task_class IN ('live', 'artifact_recovery', 'network_recovery')",
+            "task_class IN ('live', 'artifact_recovery', 'network_recovery', "
+            "'discovery_capture')",
             name="ck_scrape_task_class",
         ),
         CheckConstraint("activation_epoch > 0", name="ck_scrape_task_epoch"),
@@ -695,6 +696,44 @@ class ScrapeTaskRecord(Base):
     direct_fallback_available_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True)
     )
+
+
+class DiscoveryCaptureRecord(Base):
+    """Artifact-only bootstrap capture; never an effective production result."""
+
+    __tablename__ = "discovery_captures"
+    __table_args__ = (
+        CheckConstraint(
+            "source IN ('gratka', 'morizon', 'otodom', 'olx')",
+            name="ck_discovery_capture_source",
+        ),
+    )
+
+    task_id: Mapped[UUID] = mapped_column(
+        ForeignKey("scrape_tasks.id"), primary_key=True
+    )
+    capture_id: Mapped[UUID] = mapped_column(
+        ForeignKey("page_captures.id"), unique=True
+    )
+    artifact_id: Mapped[str] = mapped_column(String(36), unique=True)
+    source: Mapped[str] = mapped_column(String(20))
+    content_hash: Mapped[str] = mapped_column(String(64))
+    fetched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class DiscoveryCanaryAuditRecord(Base):
+    __tablename__ = "discovery_canary_audits"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True)
+    source: Mapped[str] = mapped_column(String(20))
+    release_hash: Mapped[str] = mapped_column(
+        ForeignKey("parser_releases.release_hash")
+    )
+    actor: Mapped[str] = mapped_column(String(200))
+    selected_count: Mapped[int]
+    enqueued_count: Mapped[int]
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
 class PortalParserActivationRecord(Base):
