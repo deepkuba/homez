@@ -67,9 +67,7 @@ def test_connector_resolves_documented_proxy_pool_mapping(tmp_path: Path) -> Non
     secret = tmp_path / "proxy-pool.json"
     secret.write_text(
         json.dumps(
-            {
-                "route-a": "http://synthetic-user:synthetic-password@proxy.invalid:8080"
-            }
+            {"route-a": "http://synthetic-user:synthetic-password@proxy.invalid:8080"}
         )
     )
     secret.chmod(0o600)

@@ -170,9 +170,7 @@ class HttpResponseRequest:
         try:
             configured: list[_ProxyRoute] | dict[str, SecretStr] = TypeAdapter(
                 list[_ProxyRoute] | dict[str, SecretStr]
-            ).validate_json(
-                read_secret_text(self._proxy_pool_file)
-            )
+            ).validate_json(read_secret_text(self._proxy_pool_file))
             if not 1 <= len(configured) <= 64:
                 raise ValueError
             if isinstance(configured, dict):
