@@ -1002,6 +1002,13 @@ class ScrapeQueueRepository:
             attempt = session.get(ScrapeAttemptRecord, (task.id, task.attempt_count))
             if attempt is None or attempt.finished_at is not None:
                 raise LostLease("lease attempt is missing or completed")
+            if code == "budget-exhausted":
+                session.delete(attempt)
+                task.attempt_count -= 1
+                task.state = "deferred"
+                task.available_at = cast(datetime, available_at)
+                self._clear_lease(task)
+                return "deferred"
             if retry and task.attempt_count < self.policy.max_attempts:
                 state = "deferred"
                 available_at = now + timedelta(

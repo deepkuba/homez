@@ -229,6 +229,29 @@ def test_defer_fail_and_attempt_audit_are_durable(scrape_queue):
         assert [a.code for a in attempts] == ["portal-denied", "parser-error"]
 
 
+def test_pacing_deferral_does_not_consume_retry_attempt(scrape_queue):
+    from homefinder.catalog.orm import ScrapeAttemptRecord, ScrapeTaskRecord
+
+    repo, snapshots, workers, sessions = scrape_queue
+    task_id = repo.enqueue(source="gratka", snapshot_id=snapshots[0], now=NOW)
+    lease = repo.claim(workers[0], now=NOW)
+    later = NOW + timedelta(seconds=10)
+
+    repo.defer(
+        workers[0],
+        lease,
+        now=NOW,
+        available_at=later,
+        code="budget-exhausted",
+    )
+
+    with sessions() as session:
+        assert session.get(ScrapeTaskRecord, task_id).attempt_count == 0
+        assert session.scalars(select(ScrapeAttemptRecord)).all() == []
+    repo.register_worker(workers[1], release_hashes=("a" * 64,), now=later)
+    assert repo.claim(workers[1], now=later).attempt_number == 1
+
+
 def test_worker_health_identity_and_renewal_are_bounded(scrape_queue):
     from homefinder.scrape_queue.contracts import LostLease, QueuePolicy
 
