@@ -112,3 +112,42 @@ def test_proxy_authentication_failure_is_typed_without_secret(tmp_path: Path) ->
 
     assert caught.value.evidence.failure is FailureEvidence.PROXY_AUTHENTICATION
     assert password not in str(caught.value)
+
+
+def test_proxy_connection_failure_is_typed_for_governed_direct_fallback(
+    tmp_path: Path,
+) -> None:
+    from homefinder.scraper.contracts import BoundedTransportError
+    from homefinder.scraper.denial_policy import FailureEvidence
+    from homefinder.scraper.http_connector import HttpResponseRequest
+
+    secret = tmp_path / "proxy-pool.json"
+    secret.write_text(
+        json.dumps(
+            [
+                {
+                    "route_id": "route-a",
+                    "proxy_url": "http://user:password@proxy.invalid:8080",
+                }
+            ]
+        )
+    )
+    secret.chmod(0o600)
+
+    class Connection:
+        def set_tunnel(self, host, port, headers):
+            pass
+
+        def request(self, method, target, headers):
+            raise OSError("synthetic proxy connection failure")
+
+        def close(self):
+            pass
+
+    with pytest.raises(BoundedTransportError) as caught:
+        HttpResponseRequest(secret, connection_factory=lambda *args: Connection())(
+            FetchRequest("gratka", URL, "route-a"), timeout_seconds=10
+        )
+
+    assert caught.value.evidence.failure is FailureEvidence.PROXY_CONNECT_TIMEOUT
+    assert "synthetic proxy connection failure" not in str(caught.value)

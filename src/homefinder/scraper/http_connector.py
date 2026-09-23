@@ -151,6 +151,8 @@ class HttpResponseRequest:
                 failure=(
                     FailureEvidence.PROXY_AUTHENTICATION
                     if proxy_authentication
+                    else FailureEvidence.PROXY_CONNECT_TIMEOUT
+                    if request.route_id is not None
                     else FailureEvidence.TRANSPORT_FAILURE
                 ),
             ) from None
