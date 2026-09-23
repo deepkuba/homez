@@ -129,7 +129,10 @@ class ScrapeQueueRepository:
             if listing is None or origin is None or origin.key != source:
                 raise ValueError("snapshot source mismatch")
             canonical, identity = validate_listing_url(source, listing.canonical_url)
-            if identity != listing.source_listing_id:
+            if (
+                task_class is not TaskClass.DISCOVERY_CAPTURE
+                and identity != listing.source_listing_id
+            ):
                 raise ValueError("listing identity mismatch")
             identity_key = f"{source}:{snapshot_id}:{canonical}:{task_class.value}"
             if task_class != TaskClass.LIVE:
@@ -211,10 +214,7 @@ class ScrapeQueueRepository:
             )
             candidates = session.execute(
                 select(ListingSnapshotRecord.id)
-                .add_columns(
-                    ListingRecord.canonical_url,
-                    ListingRecord.source_listing_id,
-                )
+                .add_columns(ListingRecord.canonical_url)
                 .join(
                     newest,
                     and_(
@@ -237,12 +237,10 @@ class ScrapeQueueRepository:
                 )
             ).all()
             snapshot_ids_list: list[UUID] = []
-            for snapshot_id, canonical_url, source_listing_id in candidates:
+            for snapshot_id, canonical_url in candidates:
                 try:
-                    _, identity = validate_listing_url(source, canonical_url)
+                    validate_listing_url(source, canonical_url)
                 except ValueError:
-                    continue
-                if identity != source_listing_id:
                     continue
                 snapshot_ids_list.append(snapshot_id)
                 if len(snapshot_ids_list) == limit:

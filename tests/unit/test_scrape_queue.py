@@ -81,7 +81,7 @@ def test_discovery_canary_is_bounded_previewable_and_audited(scrape_queue):
         )
 
 
-def test_discovery_canary_skips_catalog_identity_mismatches(scrape_queue):
+def test_discovery_canary_accepts_catalog_surrogate_identity(scrape_queue):
     from homefinder.catalog.orm import (
         ListingRecord,
         ListingSnapshotRecord,
@@ -107,10 +107,10 @@ def test_discovery_canary_skips_catalog_identity_mismatches(scrape_queue):
         actor="operator@example.invalid",
     )
 
-    assert preview.selected_count == 2
-    assert released.enqueued_count == 2
+    assert preview.selected_count == 3
+    assert released.enqueued_count == 3
     with sessions() as session:
-        assert len(session.scalars(select(ScrapeTaskRecord)).all()) == 2
+        assert len(session.scalars(select(ScrapeTaskRecord)).all()) == 3
 
 
 def test_enqueue_is_idempotent_and_only_advertised_source_is_claimed(scrape_queue):
