@@ -168,15 +168,26 @@ class HttpResponseRequest:
         if _ROUTE.fullmatch(route_id) is None:
             raise BoundedTransportError("proxy route unavailable")
         try:
-            routes = TypeAdapter(list[_ProxyRoute]).validate_json(
+            configured: list[_ProxyRoute] | dict[str, SecretStr] = TypeAdapter(
+                list[_ProxyRoute] | dict[str, SecretStr]
+            ).validate_json(
                 read_secret_text(self._proxy_pool_file)
             )
-            if not 1 <= len(routes) <= 64 or len({r.route_id for r in routes}) != len(
-                routes
-            ):
+            if not 1 <= len(configured) <= 64:
                 raise ValueError
-            selected = next(route for route in routes if route.route_id == route_id)
-            parsed = urlsplit(selected.proxy_url.get_secret_value())
+            if isinstance(configured, dict):
+                if any(_ROUTE.fullmatch(key) is None for key in configured):
+                    raise ValueError
+                proxy_url: SecretStr = configured[route_id]
+            else:
+                if len({route.route_id for route in configured}) != len(configured):
+                    raise ValueError
+                proxy_url = next(
+                    route.proxy_url
+                    for route in configured
+                    if route.route_id == route_id
+                )
+            parsed = urlsplit(proxy_url.get_secret_value())
             if (
                 parsed.scheme != "http"
                 or parsed.hostname is None

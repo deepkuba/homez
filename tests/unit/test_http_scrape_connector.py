@@ -61,6 +61,47 @@ def test_connector_resolves_only_granted_proxy_route_from_secret(
     assert "synthetic-password" not in repr(connector)
 
 
+def test_connector_resolves_documented_proxy_pool_mapping(tmp_path: Path) -> None:
+    from homefinder.scraper.http_connector import HttpResponseRequest
+
+    secret = tmp_path / "proxy-pool.json"
+    secret.write_text(
+        json.dumps(
+            {
+                "route-a": "http://synthetic-user:synthetic-password@proxy.invalid:8080"
+            }
+        )
+    )
+    secret.chmod(0o600)
+    connections = []
+
+    class Connection:
+        def __init__(self, host, port, timeout):
+            self.host, self.port, self.timeout = host, port, timeout
+            self.tunnel = None
+            connections.append(self)
+
+        def set_tunnel(self, host, port, headers):
+            self.tunnel = (host, port, headers)
+
+        def request(self, method, target, headers):
+            pass
+
+        def getresponse(self):
+            return object()
+
+        def close(self):
+            pass
+
+    HttpResponseRequest(secret, connection_factory=Connection)(
+        FetchRequest("gratka", URL, "route-a"), timeout_seconds=10
+    )
+
+    connection = connections[0]
+    assert (connection.host, connection.port) == ("proxy.invalid", 8080)
+    assert connection.tunnel[:2] == ("gratka.pl", 443)
+
+
 def test_connector_rejects_unknown_route_without_connection(tmp_path: Path) -> None:
     from homefinder.scraper.contracts import BoundedTransportError
     from homefinder.scraper.http_connector import HttpResponseRequest
