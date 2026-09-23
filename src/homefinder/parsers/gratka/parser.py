@@ -194,9 +194,7 @@ class GratkaPageParser:
             except (ValueError, RecursionError):
                 continue
             property_data: dict[int, dict[str, object]] = {
-                id(item["propertyData"]): cast(
-                    dict[str, object], item["propertyData"]
-                )
+                id(item["propertyData"]): cast(dict[str, object], item["propertyData"])
                 for item in _nested_dicts(hydrated)
                 if isinstance(item.get("propertyData"), dict)
             }
