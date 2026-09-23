@@ -25,6 +25,7 @@ from homefinder.scrape_queue.contracts import (
     ScrapeLease,
     SourceBudgetPolicy,
     SourceBudgetSnapshot,
+    TaskClass,
     WorkerIdentity,
 )
 from homefinder.scraper.denial_policy import (
@@ -429,15 +430,21 @@ class SourceBudgetRepository:
             .where(ScrapeAttemptRecord.lease_token == lease.lease_token)
             .with_for_update()
         )
+        discovery = (
+            task is not None and task.task_class == TaskClass.DISCOVERY_CAPTURE.value
+        )
         if (
             task is None
             or attempt is None
             or identity is None
             or (identity.source, identity.deployment)
             != (worker.source, worker.deployment)
-            or activation is None
-            or (task.release_hash, task.activation_epoch)
-            != (activation.release_hash, activation.activation_epoch)
+            or not discovery
+            and (
+                activation is None
+                or (task.release_hash, task.activation_epoch)
+                != (activation.release_hash, activation.activation_epoch)
+            )
             or (task.release_hash, task.activation_epoch)
             != (lease.release_hash, lease.activation_epoch)
         ):

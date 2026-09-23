@@ -68,6 +68,36 @@ def test_proxy_billing_cycle_column_holds_anchored_date():
     assert ProxyUsageLedgerRecord.__table__.c.billing_cycle.type.length == 10
 
 
+def test_discovery_capture_reserves_budget_without_active_parser(scrape_queue):
+    from homefinder.catalog.orm import PortalParserActivationRecord
+    from homefinder.scrape_queue.budget import SourceBudgetRepository
+    from homefinder.scrape_queue.contracts import SourceBudgetPolicy, TaskClass
+
+    queue, snapshots, workers, sessions = scrape_queue
+    with sessions.begin() as session:
+        session.delete(session.get(PortalParserActivationRecord, "gratka"))
+    task_id = queue.enqueue(
+        source="gratka",
+        snapshot_id=snapshots[0],
+        now=NOW,
+        task_class=TaskClass.DISCOVERY_CAPTURE,
+        release_hash="a" * 64,
+    )
+    lease = queue.claim(
+        workers[0], now=NOW, task_classes=(TaskClass.DISCOVERY_CAPTURE,)
+    )
+    assert lease.task_id == task_id
+    budget = SourceBudgetRepository(
+        sessions,
+        policies={"gratka": SourceBudgetPolicy(timedelta(seconds=10), 1_100, 1_000)},
+    )
+
+    permit = budget.reserve_start(workers[0], lease, now=NOW)
+
+    assert permit.granted
+    assert permit.route_class == "direct"
+
+
 def test_webshare_ceiling_reserves_100_mb_and_direct_continues(scrape_queue):
     from homefinder.scrape_queue.budget import SourceBudgetRepository
     from homefinder.scrape_queue.contracts import SourceBudgetPolicy
