@@ -209,32 +209,45 @@ class ScrapeQueueRepository:
                 .group_by(ListingSnapshotRecord.listing_id)
                 .subquery()
             )
-            snapshot_ids = tuple(
-                session.scalars(
-                    select(ListingSnapshotRecord.id)
-                    .join(
-                        newest,
-                        and_(
-                            newest.c.listing_id == ListingSnapshotRecord.listing_id,
-                            newest.c.observed_at == ListingSnapshotRecord.observed_at,
-                        ),
-                    )
-                    .join(
-                        ListingRecord,
-                        ListingRecord.id == ListingSnapshotRecord.listing_id,
-                    )
-                    .join(SourceRecord, SourceRecord.id == ListingRecord.source_id)
-                    .where(
-                        SourceRecord.key == source,
-                        ListingRecord.lifecycle_state != "inactive",
-                    )
-                    .order_by(
-                        ListingSnapshotRecord.observed_at.desc(),
-                        ListingSnapshotRecord.id,
-                    )
-                    .limit(limit)
+            candidates = session.execute(
+                select(ListingSnapshotRecord.id)
+                .add_columns(
+                    ListingRecord.canonical_url,
+                    ListingRecord.source_listing_id,
                 )
-            )
+                .join(
+                    newest,
+                    and_(
+                        newest.c.listing_id == ListingSnapshotRecord.listing_id,
+                        newest.c.observed_at == ListingSnapshotRecord.observed_at,
+                    ),
+                )
+                .join(
+                    ListingRecord,
+                    ListingRecord.id == ListingSnapshotRecord.listing_id,
+                )
+                .join(SourceRecord, SourceRecord.id == ListingRecord.source_id)
+                .where(
+                    SourceRecord.key == source,
+                    ListingRecord.lifecycle_state != "inactive",
+                )
+                .order_by(
+                    ListingSnapshotRecord.observed_at.desc(),
+                    ListingSnapshotRecord.id,
+                )
+            ).all()
+            snapshot_ids_list: list[UUID] = []
+            for snapshot_id, canonical_url, source_listing_id in candidates:
+                try:
+                    _, identity = validate_listing_url(source, canonical_url)
+                except ValueError:
+                    continue
+                if identity != source_listing_id:
+                    continue
+                snapshot_ids_list.append(snapshot_id)
+                if len(snapshot_ids_list) == limit:
+                    break
+            snapshot_ids = tuple(snapshot_ids_list)
         enqueued = 0
         if execute:
             for snapshot_id in snapshot_ids:

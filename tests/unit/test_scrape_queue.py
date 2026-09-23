@@ -81,6 +81,38 @@ def test_discovery_canary_is_bounded_previewable_and_audited(scrape_queue):
         )
 
 
+def test_discovery_canary_skips_catalog_identity_mismatches(scrape_queue):
+    from homefinder.catalog.orm import (
+        ListingRecord,
+        ListingSnapshotRecord,
+        PortalParserActivationRecord,
+        ScrapeTaskRecord,
+    )
+
+    repo, snapshots, _, sessions = scrape_queue
+    with sessions.begin() as session:
+        session.delete(session.get(PortalParserActivationRecord, "gratka"))
+        snapshot = session.get(ListingSnapshotRecord, snapshots[0])
+        listing = session.get(ListingRecord, snapshot.listing_id)
+        listing.source_listing_id = "catalog-id-does-not-match-url"
+
+    preview = repo.release_discovery_canary(
+        source="gratka", release_hash="a" * 64, now=NOW
+    )
+    released = repo.release_discovery_canary(
+        source="gratka",
+        release_hash="a" * 64,
+        now=NOW,
+        execute=True,
+        actor="operator@example.invalid",
+    )
+
+    assert preview.selected_count == 2
+    assert released.enqueued_count == 2
+    with sessions() as session:
+        assert len(session.scalars(select(ScrapeTaskRecord)).all()) == 2
+
+
 def test_enqueue_is_idempotent_and_only_advertised_source_is_claimed(scrape_queue):
     from homefinder.scrape_queue.contracts import WorkerIdentity
 
