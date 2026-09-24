@@ -8,6 +8,7 @@ from homefinder.parsers.contracts import DECLARED_FIELDS, PageInput
 from homefinder.parsers.morizon.parser import MorizonPageParser
 
 FIXTURE = Path(__file__).parents[1] / "fixtures/parsers/morizon/baseline.html"
+NUXT_FIXTURE = Path(__file__).parents[1] / "fixtures/parsers/morizon/nuxt_offer.html"
 
 
 def parse(body: bytes):
@@ -43,6 +44,41 @@ def test_baseline_extracts_facts_with_provenance():
         next(c for c in result.candidates if c.name == "price_per_sqm_minor").origin
         == "derived"
     )
+
+
+def test_nuxt_offer_extracts_primary_property_without_similar_listings():
+    result = parse(NUXT_FIXTURE.read_bytes())
+
+    assert result.variant == "jsonld-offer-nuxt-property-v3"
+    assert result.facts.title == "Synthetic Nuxt apartment"
+    assert result.facts.price_minor == 81000000
+    assert result.facts.currency == "PLN"
+    assert result.facts.area_sqm == "51.25"
+    assert result.facts.rooms == 3
+    assert result.facts.location == "Warszawa"
+    assert result.facts.description == "Synthetic Nuxt description"
+    assert result.facts.heating_type == "district"
+    assert result.facts.price_per_sqm_minor == 1580488
+    assert result.facts.monthly_admin_fee_minor is None
+    assert result.facts.availability == "unknown"
+    assert {candidate.name for candidate in result.candidates} == {
+        "title",
+        "price",
+        "currency",
+        "locality",
+        "area",
+        "rooms",
+        "description",
+        "heating_type",
+        "price_per_sqm_minor",
+    }
+
+
+def test_nuxt_offer_rejects_ambiguous_primary_property():
+    body = NUXT_FIXTURE.read_bytes().replace(
+        b'[{"propertyData":1}', b'[{"propertyData":1},{"propertyData":2}'
+    )
+    assert parse(body).variant == "unknown-variant"
 
 
 @pytest.mark.parametrize(

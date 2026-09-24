@@ -21,11 +21,21 @@ class _Document(HTMLParser):
     def __init__(self) -> None:
         super().__init__(convert_charrefs=True)
         self.blocks: list[str] = []
+        self.nuxt_blocks: list[str] = []
         self.current: list[str] | None = None
+        self.current_kind: str | None = None
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
-        if tag == "script" and dict(attrs).get("type") == "application/ld+json":
-            self.current = []
+        if tag != "script":
+            return
+        attributes = dict(attrs)
+        if attributes.get("type") == "application/ld+json":
+            self.current, self.current_kind = [], "jsonld"
+        elif (
+            attributes.get("type") == "application/json"
+            and attributes.get("id") == "__NUXT_DATA__"
+        ):
+            self.current, self.current_kind = [], "nuxt"
 
     def handle_data(self, data: str) -> None:
         if self.current is not None:
@@ -33,8 +43,10 @@ class _Document(HTMLParser):
 
     def handle_endtag(self, tag: str) -> None:
         if tag == "script" and self.current is not None:
-            self.blocks.append("".join(self.current))
+            target = self.nuxt_blocks if self.current_kind == "nuxt" else self.blocks
+            target.append("".join(self.current))
             self.current = None
+            self.current_kind = None
 
 
 def _mapping(value: object) -> dict[str, Any]:
@@ -55,6 +67,70 @@ def _money(value: object, maximum: int) -> int | None:
     except InvalidOperation:
         pass
     return None
+
+
+def _reference(values: list[Any], reference: object) -> object:
+    if (
+        isinstance(reference, bool)
+        or not isinstance(reference, int)
+        or not 0 <= reference < len(values)
+    ):
+        return None
+    return values[reference]
+
+
+def _nuxt_property(blocks: list[str]) -> tuple[dict[str, Any], list[Any]] | None:
+    if len(blocks) != 1:
+        return None
+    try:
+        values = json.loads(blocks[0])
+        if not isinstance(values, list) or not 1 <= len(values) <= 100_000:
+            return None
+        references = {
+            value["propertyData"]
+            for value in values
+            if isinstance(value, dict) and "propertyData" in value
+        }
+        if len(references) != 1:
+            return None
+        selected = _reference(values, references.pop())
+        if not isinstance(selected, dict):
+            return None
+        return selected, values
+    except (KeyError, TypeError, ValueError, RecursionError):
+        return None
+
+
+def _detail_value(
+    property_data: dict[str, Any], values: list[Any], section: str, label: str
+) -> object:
+    records = _reference(values, property_data.get(section))
+    if not isinstance(records, list):
+        return None
+    matches = []
+    for record_reference in records:
+        record = _reference(values, record_reference)
+        if not isinstance(record, dict):
+            continue
+        if _reference(values, record.get("label")) == label:
+            matches.append(_reference(values, record.get("value")))
+    return matches[0] if len(matches) == 1 else None
+
+
+def _heating(value: object) -> str | None:
+    if not isinstance(value, str):
+        return None
+    normalized = value.casefold()
+    for needles, result in (
+        (("miejsk", "sieciow", "district"), "district"),
+        (("gaz", "gas"), "gas"),
+        (("elektr", "electric"), "electric"),
+        (("pompa ciep", "heat pump"), "heat_pump"),
+        (("węgl", "wegiel", "coal", "solid"), "solid_fuel"),
+    ):
+        if any(needle in normalized for needle in needles):
+            return result
+    return "other" if normalized.strip() else None
 
 
 class MorizonPageParser:
@@ -84,12 +160,41 @@ class MorizonPageParser:
                 if isinstance(node, dict) and node.get("@type") in (
                     "Apartment",
                     "House",
+                    "Offer",
                 ):
                     matches.append((index, path, node))
         if len(matches) != 1:
             return self._unknown(page)
         index, node_path, listing = matches[0]
-        offers = _mapping(listing.get("offers"))
+        is_offer = listing.get("@type") == "Offer"
+        nuxt = _nuxt_property(document.nuxt_blocks) if is_offer else None
+        if is_offer and nuxt is None:
+            return self._unknown(page)
+        property_data, nuxt_values = nuxt if nuxt is not None else ({}, [])
+        offers = listing if is_offer else _mapping(listing.get("offers"))
+        location = None
+        if is_offer:
+            location_record = _reference(nuxt_values, property_data.get("location"))
+            if isinstance(location_record, dict):
+                hierarchy = _reference(nuxt_values, location_record.get("location"))
+                if isinstance(hierarchy, list):
+                    resolved = [_reference(nuxt_values, item) for item in hierarchy]
+                    if resolved and all(
+                        isinstance(item, str) and item.strip() for item in resolved
+                    ):
+                        location = resolved[2] if len(resolved) >= 3 else resolved[-1]
+        heating = (
+            _heating(
+                _detail_value(
+                    property_data,
+                    nuxt_values,
+                    "buildingDetailedInformation",
+                    "Ogrzewanie",
+                )
+            )
+            if is_offer
+            else listing.get("heatingType")
+        )
         raw: dict[str, tuple[str, object, str]] = {
             "title": ("title", listing.get("name"), "name"),
             "price": (
@@ -104,15 +209,27 @@ class MorizonPageParser:
             ),
             "locality": (
                 "location",
-                _mapping(listing.get("address")).get("addressLocality"),
-                "address.addressLocality",
+                location
+                if is_offer
+                else _mapping(listing.get("address")).get("addressLocality"),
+                "propertyData.location.location[city]"
+                if is_offer
+                else "address.addressLocality",
             ),
             "area": (
                 "area_sqm",
-                _mapping(listing.get("floorSize")).get("value"),
-                "floorSize.value",
+                _reference(nuxt_values, property_data.get("area"))
+                if is_offer
+                else _mapping(listing.get("floorSize")).get("value"),
+                "propertyData.area" if is_offer else "floorSize.value",
             ),
-            "rooms": ("rooms", listing.get("numberOfRooms"), "numberOfRooms"),
+            "rooms": (
+                "rooms",
+                _reference(nuxt_values, property_data.get("numberOfRooms"))
+                if is_offer
+                else listing.get("numberOfRooms"),
+                "propertyData.numberOfRooms" if is_offer else "numberOfRooms",
+            ),
             "description": ("description", listing.get("description"), "description"),
             "availability": (
                 "availability",
@@ -129,7 +246,13 @@ class MorizonPageParser:
                 _money(listing.get("monthlyAdminFee"), 10_000_000),
                 "monthlyAdminFee",
             ),
-            "heating_type": ("heating_type", listing.get("heatingType"), "heatingType"),
+            "heating_type": (
+                "heating_type",
+                heating,
+                "propertyData.buildingDetailedInformation[Ogrzewanie]"
+                if is_offer
+                else "heatingType",
+            ),
             "admin_fee_includes_heating": (
                 "admin_fee_includes_heating",
                 listing.get("adminFeeIncludesHeating"),
@@ -166,7 +289,12 @@ class MorizonPageParser:
                     name,
                     value,
                     "page",
-                    f"script[type=application/ld+json][{index}]{node_path}.{locator}",
+                    (
+                        f"script[type=application/json]#__NUXT_DATA__.{locator}"
+                        if locator.startswith("propertyData.")
+                        else f"script[type=application/ld+json][{index}]"
+                        f"{node_path}.{locator}"
+                    ),
                     self.release_hash,
                 )
             )
@@ -196,7 +324,13 @@ class MorizonPageParser:
         return ParserResult(
             page.capture_id,
             self.release_hash,
-            ("jsonld-main-entity-residence-v2" if node_path else "jsonld-residence-v1"),
+            (
+                "jsonld-offer-nuxt-property-v3"
+                if is_offer
+                else "jsonld-main-entity-residence-v2"
+                if node_path
+                else "jsonld-residence-v1"
+            ),
             tuple(candidates),
             tuple(name for name in DECLARED_FIELDS[:11] if name not in present),
             PageFacts(**facts),
