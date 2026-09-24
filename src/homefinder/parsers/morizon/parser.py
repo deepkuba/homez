@@ -133,6 +133,23 @@ def _heating(value: object) -> str | None:
     return "other" if normalized.strip() else None
 
 
+def _area(value: object) -> str | None:
+    if isinstance(value, bool) or not isinstance(value, (str, int, float)):
+        return None
+    match = re.fullmatch(
+        r"([0-9]{1,6}(?:[.,][0-9]{1,4})?)(?:\s*m(?:²|2))?",
+        str(value).strip(),
+        re.IGNORECASE,
+    )
+    if match is None:
+        return None
+    normalized = match.group(1).replace(",", ".")
+    try:
+        return normalized if Decimal(normalized) > 0 else None
+    except InvalidOperation:
+        return None
+
+
 class MorizonPageParser:
     """One explicit residence representation, independently versioned by release."""
 
@@ -218,17 +235,17 @@ class MorizonPageParser:
             ),
             "area": (
                 "area_sqm",
-                _reference(nuxt_values, property_data.get("area"))
+                _area(_reference(nuxt_values, property_data.get("area")))
                 if is_offer
                 else _mapping(listing.get("floorSize")).get("value"),
                 "propertyData.area" if is_offer else "floorSize.value",
             ),
             "rooms": (
                 "rooms",
-                _reference(nuxt_values, property_data.get("numberOfRooms"))
+                _reference(nuxt_values, property_data.get("numberOfRoomsCount"))
                 if is_offer
                 else listing.get("numberOfRooms"),
-                "propertyData.numberOfRooms" if is_offer else "numberOfRooms",
+                "propertyData.numberOfRoomsCount" if is_offer else "numberOfRooms",
             ),
             "description": ("description", listing.get("description"), "description"),
             "availability": (
